@@ -2,6 +2,7 @@ import type { Layout } from '../model/layout';
 import type { LampParams, ShadeParams } from '../model/params';
 import type { ShadeSurface } from '../model/shadeSurface';
 import { angles, sectionRadius } from '../model/section';
+import { textureField, textureSampling } from '../model/texture';
 import type { SolidPart } from './build';
 import { loftSolid, loftTube } from './mesh';
 import type { Vec3 } from './mesh';
@@ -38,9 +39,9 @@ export function buildShadeParts(m: ManifoldToplevel, p: LampParams, layout: Layo
 
   // --- style relief fields (>= 0, outward only) ---
   const ribD = sh.style === 'ribs' ? ribField(sh) : null;
-  const weaveD = sh.style === 'wovenTexture' ? weaveField(sh) : null;
+  const texD = sh.style === 'textured' ? textureField(sh.texture) : null;
   const dispOut = (t: number, phi: number): number =>
-    (ribD ? ribD(t, phi) : 0) + (weaveD ? weaveD(t, phi) : 0) + grooveAt(z0 + t * H);
+    (ribD ? ribD(t, phi) : 0) + (texD ? texD(phi, t) : 0) + grooveAt(z0 + t * H);
   const dispIn = (t: number, phi: number): number =>
     (ribD && sh.ribCorrugated ? ribD(t, phi) : 0) + grooveAt(z0 + t * H);
 
@@ -70,16 +71,13 @@ export function buildShadeParts(m: ManifoldToplevel, p: LampParams, layout: Layo
     innerR.push(ig);
     innerRad.push(ir);
   }
-  const innerMaxAt = (z: number): number => {
+  /** Interpolated actual inner radius at height z along a given direction (nearest angular sample). */
+  const innerAt = (z: number, phi: number): number => {
     const x = clamp((z - z0) / H, 0, 1) * (nr - 1);
     const i = Math.min(nr - 2, Math.floor(x));
     const f = x - i;
-    let mx = 0;
-    for (let k = 0; k < n; k++) {
-      const r = innerRad[i][k] + (innerRad[i + 1][k] - innerRad[i][k]) * f;
-      if (r > mx) mx = r;
-    }
-    return mx;
+    const k = ((Math.round((phi / TAU) * n) % n) + n) % n;
+    return innerRad[i][k] + (innerRad[i + 1][k] - innerRad[i][k]) * f;
   };
   const minInnerInBand = (zA: number, zB: number): number => {
     let mn = Infinity;
@@ -95,7 +93,7 @@ export function buildShadeParts(m: ManifoldToplevel, p: LampParams, layout: Layo
 
   // --- vase mode (solid outer body for spiral slicing) ---
   const vaseStyle =
-    sh.style === 'smooth' || (sh.style === 'ribs' && sh.ribCorrugated) || sh.style === 'wovenTexture';
+    sh.style === 'smooth' || (sh.style === 'ribs' && sh.ribCorrugated) || sh.style === 'textured';
   const vaseBlockers: string[] = [];
   if (!vaseStyle) vaseBlockers.push(`the ${sh.style} style needs a two-sided wall`);
   if (sh.topClosure !== 'open') vaseBlockers.push('the top is not open');
@@ -103,23 +101,33 @@ export function buildShadeParts(m: ManifoldToplevel, p: LampParams, layout: Layo
   const vase = sh.vaseMode && vaseBlockers.length === 0;
   if (sh.vaseMode && !vase) notes.push(`Vase mode ignored: ${vaseBlockers.join('; ')}.`);
 
-  // --- spider spoke merge point (before the body, so perforations can keep clear) ---
+  // --- spider spoke ends (solved per spoke direction, so non-round shades are reached exactly) ---
   const hubR = sh.hubOuterDiameter / 2;
   const riseRad = clamp(sh.spokeRise, 0, 80) * (Math.PI / 180);
-  const bite = clamp(sh.wallThickness * 0.75, 0.4, 1.2);
+  // the spoke's square end is tilted by the rise, so its lower corner reaches thickness/2·sin(rise) further
+  // out than the centreline end point: pull the end in by that so the bite never pierces the outer wall
+  const tiltReach = (sh.spokeThickness / 2) * Math.sin(clamp(sh.spokeRise, 0, 80) * (Math.PI / 180));
+  const bite = Math.max(0.2, clamp(sh.wallThickness * 0.75, 0.4, 1.2) - tiltReach);
   const spokeBase = layout.hubBottom + sh.hubThickness / 2; // inner end of every spoke
-  let spokeZ = spokeBase;
+  const spokeCount = Math.max(1, Math.round(sh.spokeCount));
+  const spokeEnds: Array<{ phi: number; r: number; z: number }> = [];
   if (sh.mount === 'spider') {
-    for (let it = 0; it < 8; it++) {
-      const r = Math.max(innerMaxAt(spokeZ) + bite, hubR + 0.5);
-      const zNext = riseRad > 1e-3 ? Math.min(z1 - 2, spokeBase + (r - hubR) / Math.tan(riseRad)) : spokeBase;
-      if (Math.abs(zNext - spokeZ) < 1e-3) break;
-      spokeZ = zNext;
+    let short = false;
+    for (let s = 0; s < spokeCount; s++) {
+      const phi = (TAU * s) / spokeCount;
+      let z = spokeBase;
+      for (let it = 0; it < 12; it++) {
+        const r = Math.max(innerAt(z, phi) + bite, hubR + 0.5);
+        const zNext = riseRad > 1e-3 ? Math.min(z1 - 2, spokeBase + (r - hubR) / Math.tan(riseRad)) : spokeBase;
+        if (Math.abs(zNext - z) < 1e-3) break;
+        z = zNext;
+      }
+      if (innerAt(z, phi) < hubR) short = true;
+      spokeEnds.push({ phi, r: Math.max(innerAt(z, phi) + bite, hubR + 0.5), z });
     }
-    if (innerMaxAt(spokeZ) < hubR)
-      notes.push('Hub is wider than the shade at the mount height; spokes may not reach the wall.');
+    if (short) notes.push('Hub is wider than the shade at the mount height; spokes may not reach the wall.');
   }
-  const spokeEndR = sh.mount === 'spider' ? Math.max(innerMaxAt(spokeZ) + bite, hubR + 0.5) : 0;
+  const spokeZ = spokeEnds.length ? Math.max(...spokeEnds.map((e) => e.z)) : spokeBase;
 
   // --- short tube between (offset) nominal surfaces: rim bands, seat, spoke band ---
   const bandSolid = (
@@ -129,7 +137,9 @@ export function buildShadeParts(m: ManifoldToplevel, p: LampParams, layout: Layo
     outerFn: (t: number, phi: number) => number,
   ): Manifold => {
     const zTop = Math.max(zHi, zLo + 0.05);
-    const nz = Math.max(2, Math.ceil((zTop - zLo) / Math.max(2, H / (nr - 1))) + 1);
+    // rounded shoulders curve sharply near the rims; follow the main ring spacing there (no 2 mm floor)
+    const minStep = sh.bottomRounding > 0 || sh.topRounding > 0 ? 0.25 : 2;
+    const nz = Math.max(2, Math.ceil((zTop - zLo) / Math.max(minStep, H / (nr - 1))) + 1);
     const og: Vec3[][] = [];
     const ig: Vec3[][] = [];
     for (let i = 0; i < nz; i++) {
@@ -164,9 +174,10 @@ export function buildShadeParts(m: ManifoldToplevel, p: LampParams, layout: Layo
       const out = S.outerRadius(t, phi);
       return sh.mount === 'base' ? out : Math.max(out, S.innerRadius(t, phi) + weaveBulge);
     };
-    let strandLo = z0 + rim;
+    // strands stay off rounded shoulders: the solid rim band follows the curve there
+    let strandLo = z0 + Math.max(rim, Math.min(sh.bottomRounding, H * 0.4));
     if (hasFitter) strandLo = Math.max(strandLo, lipZ + Math.max(3, rim));
-    const strandHi = z1 - rim;
+    const strandHi = z1 - Math.max(rim, Math.min(sh.topRounding, H * 0.4));
     const weave =
       strandHi - strandLo > 2 * sh.basketStrandWidth
         ? buildBasketStrands(m, sh, S, axisX, axisY, z0, strandLo - 0.6, strandHi + 0.6)
@@ -274,15 +285,14 @@ export function buildShadeParts(m: ManifoldToplevel, p: LampParams, layout: Layo
       .translate(axisX, axisY, layout.hubBottom - 1);
     return ring.subtract(hole);
   };
-  const spokes = (rEnd: number, zEnd: number): Manifold[] => {
+  /** One tilted box per spoke from inside the hub to its own end point (radius, height). */
+  const spokes = (ends: Array<{ phi: number; r: number; z: number }>): Manifold[] => {
     const out: Manifold[] = [];
-    const count = Math.max(1, Math.round(sh.spokeCount));
     const r0 = Math.max(0, hubR - 1); // embedded in the hub
-    const r1 = Math.max(rEnd, r0 + 0.5);
     const za = layout.hubBottom + sh.hubThickness / 2; // centred in the hub at the inner end
-    const zb = clamp(zEnd, za + 0.01, z1 - 0.5);
-    for (let s = 0; s < count; s++) {
-      const phi = (TAU * s) / count;
+    for (const { phi, r, z } of ends) {
+      const r1 = Math.max(r, r0 + 0.5);
+      const zb = clamp(z, za + 0.01, z1 - 0.5);
       const dx = (r1 - r0) * Math.cos(phi);
       const dy = (r1 - r0) * Math.sin(phi);
       const len = Math.hypot(dx, dy, zb - za);
@@ -304,7 +314,7 @@ export function buildShadeParts(m: ManifoldToplevel, p: LampParams, layout: Layo
     return out;
   };
   if (sh.mount === 'spider') {
-    const parts = [body, hubSolid(), ...spokes(spokeEndR, spokeZ)];
+    const parts = [body, hubSolid(), ...spokes(spokeEnds)];
     if (sh.style === 'basket') {
       // local solid ring band so the spokes have wall material to merge into
       const bh = Math.max(sh.spokeThickness + 2, 4);
@@ -345,7 +355,9 @@ export function buildShadeParts(m: ManifoldToplevel, p: LampParams, layout: Layo
       .subtract(
         m.Manifold.cylinder(sh.fitterRimHeight + 2, ringID, ringID, seg).translate(axisX, axisY, layout.hubBottom - 1),
       );
-    const fitter = m.Manifold.union([hubSolid(), ring, ...spokes(ringID + rt / 2, zEnd)]);
+    // spokes end embedded in the rim wall (0.4 mm shy of its outer face) so they merge without a lip
+    const fitterEnds = Array.from({ length: spokeCount }, (_, s) => ({ phi: (TAU * s) / spokeCount, r: ringOD - 0.4, z: zEnd }));
+    const fitter = m.Manifold.union([hubSolid(), ring, ...spokes(fitterEnds)]);
     notes.push(
       `Fitter seat: groove z ${z0.toFixed(0)}–${lipZ.toFixed(0)} mm, rim Ø${(2 * ringOD).toFixed(1)} mm, ${recess.toFixed(1)} mm lip.`,
     );
@@ -368,7 +380,7 @@ export function buildShadeParts(m: ManifoldToplevel, p: LampParams, layout: Layo
 function angularSamples(p: LampParams): number {
   let n = Math.max(24, Math.round(p.quality.radialSegments));
   if (p.shade.style === 'ribs') n = Math.max(n, Math.ceil(Math.max(2, p.shade.ribCount) * 8));
-  if (p.shade.style === 'wovenTexture') n = Math.max(n, Math.max(2, p.shade.weaveColumns) * 8);
+  if (p.shade.style === 'textured') n = Math.max(n, textureSampling(p.shade.texture).around);
   while (n < 768 && chordError(p.shade, n) > 0.03) n *= 2;
   return n;
 }
@@ -393,10 +405,12 @@ function chordError(sh: ShadeParams, n: number): number {
   return worst * Math.max(sh.bottomSize, sh.topSize);
 }
 
-/** Vertical ring sampling: quality setting, raised so every weave row gets >= 6 rings. */
+/** Vertical ring sampling: quality setting, raised so every texture row gets enough rings. */
 function ringCount(p: LampParams, height: number): number {
   let nr = Math.ceil((height / 10) * p.quality.ringsPer10mm) + 1;
-  if (p.shade.style === 'wovenTexture') nr = Math.max(nr, Math.max(2, p.shade.weaveRows) * 6 + 1);
+  if (p.shade.style === 'textured') nr = Math.max(nr, textureSampling(p.shade.texture).along);
+  if (p.shade.rippleCount > 0) nr = Math.max(nr, Math.round(p.shade.rippleCount) * 16 + 1);
+  if (p.shade.bottomRounding > 0 || p.shade.topRounding > 0) nr = Math.max(nr, Math.ceil(height / 2) + 1);
   return Math.max(2, nr);
 }
 
@@ -433,23 +447,4 @@ function ribWave(kind: ShadeParams['ribWave']): (x: number) => number {
     case 'scallop':
       return (x) => Math.sqrt(Math.max(0, 1 - (2 * x - 1) * (2 * x - 1)));
   }
-}
-
-/** Weave relief d(t, phi) >= 0: checkerboard of smooth pillows on the outer surface. */
-function weaveField(sh: ShadeParams): (t: number, phi: number) => number {
-  const cols = Math.max(2, Math.round(sh.weaveColumns));
-  const rows = Math.max(2, Math.round(sh.weaveRows));
-  const depth = Math.max(0, sh.weaveDepth);
-  const pill = (f: number): number => 0.5 - 0.5 * Math.cos(TAU * f);
-  return (t, phi) => {
-    if (depth <= 0) return 0;
-    const a = (phi / TAU) * cols;
-    const ca = Math.floor(a);
-    const b = t * rows;
-    const cb = Math.floor(b);
-    const c = ((ca % cols) + cols) % cols;
-    const r = ((cb % rows) + rows) % rows;
-    if ((c + r) % 2 === 1) return 0;
-    return depth * pill(a - ca) * pill(b - cb);
-  };
 }

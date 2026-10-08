@@ -169,7 +169,9 @@ interface Designation {
 function designate(p: LampParams, layout: Layout): Designation {
   const row = UL153_OPENING_AREA.find((r) => r.watts >= p.bulb.markedWatts);
   const obstructed = p.shade.mount === 'spider' || p.shade.mount === 'fitter';
-  const rimCm2 = rimAreaCm2(layout.shade, 0);
+  // Base- and lip-mounted shades stand on the base: the base closes the opening below the lamp.
+  const seated = p.shade.mount === 'base' || p.shade.mount === 'lip';
+  const rimCm2 = seated ? 0 : rimAreaCm2(layout.shade, 0);
   let obstructionCm2 = 0;
   if (obstructed) {
     // §47.3.4: hub and spokes projected on the opening are obstructions (lampholder / ≤12.7 mm nipple are not)
@@ -215,6 +217,8 @@ function designationCheck(p: LampParams, d: Designation): SafetyCheck {
     detail.push(
       `Bottom rim ${fmt(d.rimCm2)} cm² − obstructions ${fmt(d.obstructionCm2)} cm² (hub annulus + spokes) = ${fmt(d.unobstructedCm2)} cm² unobstructed vs ${fmt(d.requiredBottomCm2)} cm² required (1.1 × ${fmt(d.requiredCm2, 0)} cm² because the opening is obstructed, §47.3.4) → ${d.bottom}.`,
     );
+  } else if (p.shade.mount === 'base' || p.shade.mount === 'lip') {
+    detail.push('Bottom: the shade stands on the base, which closes the opening below the lamp → closed.');
   } else {
     detail.push(
       `Bottom opening ${fmt(d.rimCm2)} cm² vs ${fmt(d.requiredCm2, 0)} cm² required → ${d.bottom}.`,
@@ -254,10 +258,12 @@ function designationCheck(p: LampParams, d: Designation): SafetyCheck {
         `Top area is within 10 % of its threshold (${fmt(topRatio * 100, 0)} % of required).`,
       );
     }
-    if (d.bottom === 'closed' || d.top === 'closed') {
+    const seated = p.shade.mount === 'base' || p.shade.mount === 'lip';
+    const droppedBottom = d.bottom === 'closed' && !seated;
+    if (droppedBottom || d.top === 'closed') {
       status = 'warn';
       detail.push(
-        `One opening is below its area threshold, so the designation dropped to ${d.top}/${d.bottom} and the stricter ${d.bottom === 'closed' ? 'Table 47.3' : 'Table 47.4'} spacing applies.`,
+        `One opening is below its area threshold, so the designation dropped to ${d.top}/${d.bottom} and the stricter ${droppedBottom ? 'Table 47.3' : 'Table 47.4'} spacing applies.`,
       );
     }
   }
@@ -364,7 +370,8 @@ function spacingCheck(p: LampParams, layout: Layout, d: Designation): SafetyChec
       includeHub,
       topClosed,
     );
-    const ok = measured.dist >= UL153_CLOSED_CLOSED.spacing;
+    const wattsOk = W <= UL153_CLOSED_CLOSED.maxWatts;
+    const ok = wattsOk && measured.dist >= UL153_CLOSED_CLOSED.spacing;
     return {
       id: 'shade-spacing',
       title: 'Lamp-to-shade spacing',
@@ -372,7 +379,12 @@ function spacingCheck(p: LampParams, layout: Layout, d: Designation): SafetyChec
       detail:
         `Closed/closed (§47.3.2/§47.4.3): ${fmt(UL153_CLOSED_CLOSED.spacing)} mm minimum from a ` +
         `${fmt(UL153_CLOSED_CLOSED.centerline)} mm centerline — measured ${fmt(measured.dist)} mm to the ` +
-        `${measured.surface}. ${ok ? passNote : 'Increase the shade diameter/height or reduce the marking.'}`,
+        `${measured.surface}. ` +
+        (ok
+          ? passNote
+          : wattsOk
+            ? 'Increase the shade diameter/height or reduce the marking.'
+            : `A closed/closed shade is only permitted up to ${UL153_CLOSED_CLOSED.maxWatts} W (marked ${fmt(W, 0)} W) — open the top or bottom.`),
       source,
     };
   }
@@ -608,7 +620,7 @@ function stabilityCheck(p: LampParams, build: LampBuild): SafetyCheck {
     c: [layout.axisX, layout.axisY, (layout.socketBottom + layout.socketTop) / 2],
   });
   masses.push({ m: e26 ? 50 : 25, c: [bulbC.x, bulbC.y, bulbC.z] });
-  masses.push({ m: 20, c: [layout.axisX, layout.axisY, layout.baseTop / 2] }); // cord coiled in the base
+  masses.push({ m: 20, c: [layout.axisX, layout.axisY, (layout.baseBottom + layout.baseTop) / 2] }); // cord in the base
   let m = 0;
   let cx = 0;
   let cy = 0;
@@ -623,9 +635,17 @@ function stabilityCheck(p: LampParams, build: LampBuild): SafetyCheck {
   cy /= m;
   cz /= m;
 
-  // Support polygon: convex hull of the base's bottom ring, inset by the bottom edge radius.
+  // Support polygon: the leg tips for a legged stand, else the convex hull of the base's bottom ring
+  // inset by the bottom edge radius.
+  const legged = p.base.legs >= 3;
   const phis = angles(AREA_STEPS);
-  const ring = sectionRing(p.base.section, p.base.size, phis, 0, p.base.bottomEdgeRadius);
+  const ring: Vec2[] = legged
+    ? Array.from({ length: Math.round(p.base.legs) }, (_, i) => {
+        const a = (i / Math.round(p.base.legs)) * Math.PI * 2 + Math.PI / Math.round(p.base.legs) + (p.base.cordExitAngle * Math.PI) / 180;
+        const r = p.base.legSpread / 2 - p.base.legTipDiameter / 2;
+        return [r * Math.cos(a), r * Math.sin(a)] as Vec2;
+      })
+    : sectionRing(p.base.section, p.base.size, phis, 0, p.base.bottomEdgeRadius);
   const hull = convexHull(ring);
 
   let tipDeg = Infinity;
@@ -657,8 +677,8 @@ function stabilityCheck(p: LampParams, build: LampBuild): SafetyCheck {
     status,
     detail:
       `Assembled centre of mass: ${fmt(m, 0)} g at ${fmt(cz)} mm above the table (includes ${e26 ? '40' : '15'} g socket, ` +
-      `${e26 ? '50' : '25'} g bulb and 20 g cord). Tipping over the ${fmt(p.base.size, 0)} mm base footprint ` +
-      `(inset ${fmt(p.base.bottomEdgeRadius)} mm for the bottom edge) starts at ${fmt(tipDeg)} ° of incline, worst ` +
+      `${e26 ? '50' : '25'} g bulb and 20 g cord). Tipping over the ${legged ? `${Math.round(p.base.legs)} leg tips (${fmt(p.base.legSpread, 0)} mm spread)` : `${fmt(p.base.size, 0)} mm base footprint`} ` +
+      `${legged ? '' : `(inset ${fmt(p.base.bottomEdgeRadius)} mm for the bottom edge) `}starts at ${fmt(tipDeg)} ° of incline, worst ` +
       `toward ${fmt(worstDir, 0)}°. UL 153 §132 requires stability on an ${UL153_STABILITY_DEG} ° incline` +
       `${status === 'fail' ? ' — not met: widen or weigh the base (weight pocket), or shorten the lamp.' : status === 'warn' ? ' — met, but under 12° of margin is fragile on thick carpet.' : ' with margin.'}`,
     source: `${UL153_SOURCE}, §132`,
@@ -686,7 +706,9 @@ function printChecks(p: LampParams, build: LampBuild): SafetyCheck[] {
     source: 'FDM practice',
   });
 
-  // overhang: outward flare of the nominal outer profile between rings
+  // overhang: outward flare of the nominal outer profile between rings, in the direction the shade prints
+  // (a flipped shade prints top-down, so an inward-closing top becomes an outward flare from the bed)
+  const flipped = build.parts.find((part) => part.id === 'shade')?.printFlip ?? false;
   const steps = 96;
   const dz = s.height / steps;
   let maxAngle = 0;
@@ -697,7 +719,8 @@ function printChecks(p: LampParams, build: LampBuild): SafetyCheck[] {
     let dr = 0;
     for (let j = 0; j < 36; j++) {
       const phi = (j / 36) * Math.PI * 2;
-      dr = Math.max(dr, build.layout.shade.outerRadius(t1, phi) - build.layout.shade.outerRadius(t0, phi));
+      const step = build.layout.shade.outerRadius(t1, phi) - build.layout.shade.outerRadius(t0, phi);
+      dr = Math.max(dr, flipped ? -step : step);
     }
     const angle = (Math.atan2(dr, dz) * 180) / Math.PI;
     if (angle > maxAngle) {
@@ -758,13 +781,16 @@ function printChecks(p: LampParams, build: LampBuild): SafetyCheck[] {
     source: 'Common FDM bed size',
   });
 
+  const legged = p.base.legs >= 3;
   checks.push({
     id: 'print-cord',
-    title: 'Cord channel',
-    status: p.base.cordChannel ? 'pass' : 'warn',
-    detail: p.base.cordChannel
-      ? `Base underside has a cord channel exiting at ${fmt(p.base.cordExitAngle, 0)}°, so the lamp sits flat and the cord is not pinched.`
-      : `No cord channel on the base underside — the cord will lift or rock the base and can chafe where it exits. Enable base.cordChannel.`,
+    title: 'Cord route',
+    status: legged || p.base.cordChannel ? 'pass' : 'warn',
+    detail: legged
+      ? 'The cord drops from the base centre between the legs — nothing for it to pinch.'
+      : p.base.cordChannel
+        ? `${p.base.shellWall > 0 ? 'Hollow base with a rim notch' : 'Base underside has a cord channel'} exiting at ${fmt(p.base.cordExitAngle, 0)}°, so the lamp sits flat and the cord is not pinched.`
+        : `No cord channel on the base underside — the cord will lift or rock the base and can chafe where it exits. Enable base.cordChannel.`,
     source: 'Assembly practice',
   });
   return checks;

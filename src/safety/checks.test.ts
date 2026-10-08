@@ -137,28 +137,54 @@ describe('socket / bulb', () => {
   });
 });
 
+/** Open-bottom shade with a near-negligible obstruction: small spider hub on a 1/8 IPS nipple. */
+function openBottom(p: LampParams): LampParams {
+  p.hardware.socketMount = 'nipple';
+  p.shade.mount = 'spider';
+  p.shade.hubOuterDiameter = 16;
+  p.shade.spokeWidth = 1;
+  return p;
+}
+
 describe('shade designation (Table 47.1)', () => {
   const base = (): LampParams => {
-    const p = lamp();
+    const p = openBottom(lamp());
     p.bulb.watts = 60;
     p.bulb.markedWatts = 75;
-    p.shade.mount = 'base';
     p.shade.topClosure = 'open';
     return p;
   };
 
-  it('75 W needs 65 cm²: just above the threshold is open/open', async () => {
-    const p = withBottomArea(base(), 72.8, 200); // comfortably above 65 cm² (within-10 % cases warn)
+  it('75 W needs 65 cm² (×1.1 when obstructed): comfortably above is open/open', async () => {
+    const p = withBottomArea(base(), 85, 200);
     const checks = await run(p);
     const c = byId(checks, 'shade-designation');
-    expect(c.detail).toMatch(/vs 65 cm² required/);
+    expect(c.detail).toMatch(/1\.1 × 65 cm²/);
     expect(c.detail).toMatch(/Designation open\/open/);
     expect(c.status).toBe('pass');
     expect(byId(checks, 'shade-spacing').title).toMatch(/open\/open/);
   });
 
-  it('just below 65 cm² flips the bottom to closed and applies Table 47.3', async () => {
-    const p = withBottomArea(base(), 63.5, 200);
+  it('a shade standing on the base (lip or groove) has a closed bottom → Table 47.3', async () => {
+    for (const mount of ['lip', 'base'] as const) {
+      const p = lamp();
+      p.bulb.watts = 60;
+      p.bulb.markedWatts = 60;
+      p.shade.mount = mount;
+      p.shade.sizing = 'absolute';
+      p.shade.bottomSize = 140;
+      p.shade.topSize = 140;
+      p.base.size = 160;
+      const checks = await run(p);
+      expect(byId(checks, 'shade-designation').detail).toMatch(/stands on the base/);
+      const spacing = byId(checks, 'shade-spacing');
+      expect(spacing.title).toMatch(/open top \/ closed bottom/);
+      expect(spacing.detail).toMatch(/76\.2 mm/); // Table 47.3, E26 60 W row
+    }
+  });
+
+  it('just below the obstructed threshold flips the bottom to closed and applies Table 47.3', async () => {
+    const p = withBottomArea(base(), 70, 200);
     const checks = await run(p);
     const c = byId(checks, 'shade-designation');
     expect(c.detail).toMatch(/Designation open\/closed/);
@@ -171,7 +197,6 @@ describe('shade designation (Table 47.1)', () => {
   it('spider hubs/spokes are obstructions: unobstructed area must reach 1.1× the table value', async () => {
     // rim ≈ 66 cm² ≥ 65, but the hub annulus + spokes obstruct → required is 71.5 cm²
     const p = withBottomArea(base(), 66.4, 200);
-    p.shade.mount = 'spider';
     const c = byId(await run(p), 'shade-designation');
     expect(c.detail).toMatch(/1\.1 × 65 cm²/);
     expect(c.detail).toMatch(/obstructions/);
@@ -200,11 +225,10 @@ describe('shade designation (Table 47.1)', () => {
 });
 
 describe('lamp-to-shade spacing (§47.4)', () => {
-  it('E26 60 W open/open looks up 63.5 mm and passes with a wide shade', async () => {
-    const p = lamp();
+  it('E26 60 W open/open looks up 63.5 mm from an 82.5 mm centerline', async () => {
+    const p = openBottom(lamp());
     p.bulb.watts = 60;
     p.bulb.markedWatts = 60;
-    p.shade.mount = 'base';
     p.shade.sizing = 'absolute';
     p.shade.bottomSize = 200;
     p.shade.topSize = 160;
@@ -212,9 +236,22 @@ describe('lamp-to-shade spacing (§47.4)', () => {
     const c = byId(checks, 'shade-spacing');
     expect(c.title).toMatch(/open\/open/);
     expect(c.detail).toMatch(/60 W row\): ≥ 63\.5 mm from any point of a 82\.5 mm centerline/);
+    expect(byId(checks, 'bulb-clearance').status).toBe('info');
+  });
+
+  it('a wide lip-mounted shade passes as temperature-test-exempt construction', async () => {
+    const p = lamp();
+    p.bulb.watts = 9;
+    p.bulb.markedWatts = 25;
+    p.shade.mount = 'lip';
+    p.shade.sizing = 'absolute';
+    p.shade.bottomSize = 170;
+    p.shade.topSize = 170;
+    p.base.size = 180;
+    const c = byId(await run(p), 'shade-spacing');
+    expect(c.detail).toMatch(/Table 47\.3 \(E26, 25 W row\): ≥ 53\.9 mm/);
     expect(c.status).toBe('pass');
     expect(c.detail).toMatch(/temperature-test-exempt construction/);
-    expect(byId(checks, 'bulb-clearance').status).toBe('info');
   });
 
   it('fails with an explanation when the marking exceeds the table range', async () => {
@@ -226,18 +263,17 @@ describe('lamp-to-shade spacing (§47.4)', () => {
     p.bulb.markedWatts = 75;
     p.shade.mount = 'base';
     p.shade.sizing = 'absolute';
-    p.shade.bottomSize = 200;
-    p.shade.topSize = 160;
+    p.shade.bottomSize = 140;
+    p.shade.topSize = 140;
     const c = byId(await run(p), 'shade-spacing');
     expect(c.status).toBe('fail');
-    expect(c.detail).toMatch(/exceeds the highest Table 47\.2 row for a E12 lampholder \(60 W\)/);
+    expect(c.detail).toMatch(/exceeds the highest Table 47\.3 row for a E12 lampholder \(60 W\)/);
   });
 
   it('closed top / open bottom uses the Table 47.4 height/spacing trade', async () => {
-    const p = lamp();
+    const p = openBottom(lamp());
     p.bulb.watts = 60;
     p.bulb.markedWatts = 60;
-    p.shade.mount = 'base';
     p.shade.topClosure = 'closed';
     p.shade.sizing = 'absolute';
     p.shade.bottomSize = 240;

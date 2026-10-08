@@ -78,7 +78,8 @@ export function buildBasketStrands(
     return sg[qi] + (sg[qi + 1] - sg[qi]) * e;
   };
 
-  const dz = clamp(delta / 5, 0.35, 3);
+  // rounded shoulders curve the wall sharply: sample finely so chords never cut inside it
+  const dz = clamp(delta / 5, 0.35, sh.bottomRounding > 0 || sh.topRounding > 0 ? 0.8 : 3);
   const nz = Math.max(2, Math.ceil((zHi - zLo) / dz) + 1);
   const strands: Manifold[] = [];
   for (const family of [1, -1] as const) {

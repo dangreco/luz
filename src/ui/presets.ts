@@ -113,11 +113,144 @@ const vaseCone = derive('Vase-mode cone', (p) => {
   p.shade.hubOuterDiameter = 70;
 });
 
+/** Pedestal lamp: no stem; socket cup stands on the base top, hidden inside a shade that sleeves over a base lip. */
+function pedestal(p: LampParams, baseSize: number, baseHeight: number, shadeHeight: number): void {
+  p.base.section = { ...DEFAULT_PARAMS.base.section };
+  p.base.size = baseSize;
+  p.base.height = baseHeight;
+  p.base.topScale = 1;
+  p.base.topEdgeRadius = 0;
+  p.base.bottomEdgeRadius = 4;
+  p.base.shellWall = 2.4;
+  p.base.feetCount = 0;
+  p.base.cordChannel = true;
+  p.stem.height = 0;
+  p.stem.cupJoint = { ...p.stem.cupJoint, kind: 'spigot', spigotLength: 8 };
+  p.cup.size = 50;
+  p.cup.height = 64;
+  p.shade.mount = 'lip';
+  p.shade.baseGrooveDepth = 8;
+  p.shade.baseGrooveClearance = 0.4;
+  p.shade.sizing = 'absolute';
+  p.shade.height = shadeHeight;
+  p.shade.bottomSize = baseSize;
+  p.shade.topSize = baseSize;
+  p.shade.profile = 'linear';
+  p.shade.rimThickening = 0;
+  p.shade.wallThickness = 1.6;
+}
+
+/** Tela (Printables 745457): Ø120 × 280 mm knit cylinder — textured base, rounded-top knit shade. */
+const tela = derive('Tela', (p) => {
+  pedestal(p, 120, 70, 210);
+  p.base.texture = { pattern: 'checker', columns: 90, rows: 26, depth: 0.5, twist: 0 };
+  p.shade.topRounding = 16; // rounded shoulder that still leaves a ≥ 45 cm² top opening (open top)
+  p.shade.style = 'textured';
+  p.shade.texture = { pattern: 'knit', columns: 72, rows: 84, depth: 1.1, twist: 0 };
+});
+
+/** Malla mini: Ø120, base 90 mm, 200 mm knurled-mesh shade with soft wandering ripples. */
+const mallaMini = derive('Malla mini', (p) => {
+  pedestal(p, 120, 90, 200);
+  p.base.bottomEdgeRadius = 8;
+  p.base.texture = { pattern: 'ribs', columns: 160, rows: 1, depth: 0.35, twist: 0 };
+  p.shade.style = 'textured';
+  p.shade.texture = { pattern: 'knurl', columns: 96, rows: 110, depth: 0.9, twist: 0 };
+  p.shade.rippleCount = 6;
+  p.shade.rippleDepth = 3.5;
+  p.shade.rippleWobble = 0.25;
+});
+
+/**
+ * Linen box: tall square linen-textured shade on a small, low square ceramic-style block. The shade
+ * hangs from a hidden spider so its bottom edge drops below the cup, close to the block, as in the photo.
+ */
+const linenBox = derive('Linen box', (p) => {
+  const square = polygon(4, 0.04); // vertices on ±X/±Y → spokes at 0/90/180/270° run into the corners
+  p.base.section = { ...square, rotation: 45 };
+  p.base.size = 125; // across corners
+  p.base.height = 48;
+  p.base.topScale = 1;
+  p.base.edgeStyle = 'fillet';
+  p.base.topEdgeRadius = 3;
+  p.base.bottomEdgeRadius = 2;
+  p.base.feetCount = 4;
+  p.base.feetInset = 16;
+  p.base.weightPocketDiameter = 60;
+  p.base.weightPocketDepth = 24;
+  p.stem.height = 0;
+  p.stem.cupJoint = { ...p.stem.cupJoint, kind: 'spigot', spigotLength: 10 };
+  p.cup.size = 50;
+  p.cup.height = 64;
+  p.shade.bottomSection = { ...square, rotation: 45 };
+  p.shade.topSection = { ...square, rotation: 45 };
+  p.shade.sizing = 'absolute';
+  p.shade.bottomSize = 240; // ≈ 170 mm across the flats
+  p.shade.topSize = 240;
+  p.shade.height = 300;
+  p.shade.profile = 'linear';
+  p.shade.mount = 'spider';
+  p.shade.mountHeight = 52; // shade bottom drops to ~12 mm above the block
+  p.shade.spokeCount = 4;
+  p.shade.spokeRise = 25;
+  p.shade.spokeWidth = 8;
+  p.shade.hubOuterDiameter = 60;
+  p.shade.wallThickness = 1.6;
+  p.shade.rimThickening = 0.6;
+  p.shade.style = 'textured';
+  p.shade.texture = { pattern: 'checker', columns: 120, rows: 90, depth: 0.35, twist: 0 };
+});
+
+/**
+ * Tripod capsule: frosted capsule shade sitting on a twisted-rope collar, on three splayed legs.
+ * The shade sleeves over a lip on the collar; its top is a rounded dome left open at the crown
+ * (Ø ≈ 80 mm) so heat escapes — a sealed capsule would trap it (closed/closed is ≤ 7 W only).
+ */
+const tripodCapsule = derive('Tripod capsule', (p) => {
+  p.base.size = 140;
+  p.base.height = 30;
+  p.base.topScale = 1;
+  p.base.topEdgeRadius = 4;
+  p.base.bottomEdgeRadius = 12;
+  p.base.shellWall = 3;
+  p.base.texture = { pattern: 'ribs', columns: 8, rows: 1, depth: 1.6, twist: 110 };
+  p.base.legs = 3;
+  p.base.legHeight = 230;
+  p.base.legSpread = 280;
+  p.base.legDiameter = 14;
+  p.base.legTipDiameter = 11;
+  p.base.legRootRadius = 30;
+  p.base.cordExitAngle = 90;
+  p.stem.height = 0;
+  p.stem.cupJoint = { ...p.stem.cupJoint, kind: 'spigot', spigotLength: 8 };
+  p.cup.size = 50;
+  p.cup.height = 64;
+  p.shade.sizing = 'absolute';
+  p.shade.height = 200;
+  p.shade.bottomSize = 140;
+  p.shade.topSize = 140;
+  p.shade.profile = 'linear';
+  p.shade.bottomRounding = 0;
+  p.shade.topRounding = 28; // dome that still leaves a ≥ 45 cm² crown opening (open top)
+  p.shade.topClosure = 'open';
+  p.shade.mount = 'lip';
+  p.shade.baseGrooveDepth = 8;
+  p.shade.baseGrooveClearance = 0.4;
+  p.shade.style = 'smooth';
+  p.shade.wallThickness = 1.4;
+  p.shade.rimThickening = 0;
+  p.materials.shade = 'PETG';
+});
+
 export const PRESETS: Preset[] = [
+  { id: 'tela', name: 'Tela', description: 'Ø120 × 280 mm knit cylinder: textured base, rounded-top knit shade sleeved over a lip.', params: tela },
+  { id: 'malla-mini', name: 'Malla mini', description: 'Ø120 mm, 90 mm base, 200 mm knurled-mesh shade with wandering ripples.', params: mallaMini },
+  { id: 'linen-box', name: 'Linen box', description: 'Tall square linen-textured shade on a small, low square block.', params: linenBox },
+  { id: 'tripod-capsule', name: 'Tripod capsule', description: 'Frosted capsule shade in a twisted collar on three splayed legs.', params: tripodCapsule },
   {
-    id: 'tela',
-    name: 'Tela-style',
-    description: 'Ribbed conical shade on a simple round base (defaults).',
+    id: 'classic',
+    name: 'Classic ribbed',
+    description: 'Ribbed conical shade on a stem and round base (defaults).',
     params: structuredClone(DEFAULT_PARAMS),
   },
   { id: 'square-twist', name: 'Square twist', description: 'Rounded-square sections, 45° twist, sine ribs.', params: squareTwist },

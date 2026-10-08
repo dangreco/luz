@@ -45,7 +45,7 @@ describe('shade inner wall', () => {
   it('styles with displacement stay outside the nominal inner wall', () => {
     const roundedTri = { kind: 'polygon' as const, sides: 3, cornerRadius: 0.35, exponent: 4, aspect: 1, rotation: 0 };
     // tightest case: faceted triangle section, twist, bulge, fitter groove
-    for (const style of ['ribs', 'wovenTexture', 'basket'] as const) {
+    for (const style of ['ribs', 'textured', 'basket'] as const) {
       const p = params((q) => {
         q.shade.style = style;
         q.shade.mount = 'fitter';
@@ -54,6 +54,9 @@ describe('shade inner wall', () => {
         q.shade.bulge = 0.12;
         q.shade.ribCorrugated = true;
         q.shade.ribTwist = 60;
+        q.shade.texture = { pattern: 'knurl', columns: 40, rows: 30, depth: 1.2, twist: 30 };
+        q.shade.rippleCount = 5;
+        q.shade.topRounding = 25;
         q.shade.bottomSection = { ...roundedTri };
         q.shade.topSection = { ...roundedTri };
       });

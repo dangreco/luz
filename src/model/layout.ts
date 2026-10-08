@@ -1,12 +1,14 @@
 import { BULB_SHAPES, bulbProfile, type BulbShape } from './hardware';
 import type { LampParams } from './params';
+import { sectionRadius } from './section';
 import { shadeSurface, type ShadeSurface } from './shadeSurface';
 
 /**
  * Resolved vertical stack and derived dimensions — the single source of truth shared by geometry,
  * safety checks and the preview. World frame: Z up, table at z = 0, lamp axis through (axisX, axisY).
  *
- *   base     z ∈ [0, baseTop]                  centred on the origin
+ *   legs     z ∈ [0, baseBottom]               base.legs ≥ 3 only: splayed legs lift the base
+ *   base     z ∈ [baseBottom, baseTop]         centred on the origin
  *   stem     z ∈ [baseTop, stemTop]            centred on (axisX, axisY)
  *   cup      z ∈ [stemTop, cupTop]             top plate occupies [cupTop − plateThickness, cupTop]
  *   hub      z ∈ [cupTop, cupTop + hubThk]     spider/fitter only: shade hub clamped on the cup top
@@ -18,6 +20,7 @@ import { shadeSurface, type ShadeSurface } from './shadeSurface';
 export interface Layout {
   axisX: number;
   axisY: number;
+  baseBottom: number;
   baseTop: number;
   stemTop: number;
   cupTop: number;
@@ -114,7 +117,8 @@ export function computeLayout(p: LampParams): Layout {
   const sh = p.shade;
   const axisX = p.stem.height > 0 ? p.stem.offsetX : 0;
   const axisY = p.stem.height > 0 ? p.stem.offsetY : 0;
-  const baseTop = p.base.height;
+  const baseBottom = p.base.legs >= 3 ? Math.max(0, p.base.legHeight) : 0;
+  const baseTop = baseBottom + p.base.height;
   const stemTop = baseTop + Math.max(0, p.stem.height);
   const cupTop = stemTop + p.cup.height;
   const hasHub = sh.mount === 'spider' || sh.mount === 'fitter';
@@ -148,7 +152,12 @@ export function computeLayout(p: LampParams): Layout {
   );
   const bulbTop = profile[profile.length - 1][0];
 
-  const shadeBottom = sh.mount === 'base' ? baseTop - sh.baseGrooveDepth : (hasHub ? hubBottom : cupTop) - sh.mountHeight;
+  const shadeBottom =
+    sh.mount === 'base'
+      ? baseTop - sh.baseGrooveDepth
+      : sh.mount === 'lip'
+        ? baseTop
+        : (hasHub ? hubBottom : cupTop) - sh.mountHeight;
 
   let bottomSize = sh.bottomSize;
   let topSize = sh.topSize;
@@ -174,12 +183,31 @@ export function computeLayout(p: LampParams): Layout {
     (hw.socketMount === 'ring' ? sock.skirtDiameter : hw.nippleDiameter) + p.cup.clearance;
   if (hasHub && sh.hubOuterDiameter <= hubHoleDiameter + 4)
     issues.push('Shade hub outer diameter is too small for the socket hole.');
-  if (sh.mount === 'base' && bottomSize > p.base.size * p.base.topScale)
-    issues.push('Base-mounted shade is wider than the base top; the groove would cut off the base edge.');
+  if (sh.mount === 'base' || sh.mount === 'lip') {
+    // compare the real rim (after shoulder rounding / ripples) with the base top
+    const topSize = p.base.size * p.base.topScale;
+    let rimTooWide = false;
+    for (let i = 0; i < 72 && !rimTooWide; i++) {
+      const phi = (i / 72) * Math.PI * 2;
+      const twistTop = (p.base.twist * Math.PI) / 180;
+      const rBase = sectionRadius(p.base.section, phi - twistTop) * topSize;
+      const rShade = sh.mount === 'lip' ? surface.innerRadius(0, phi) : surface.outerRadius(0, phi);
+      if (rShade > rBase + 0.01) rimTooWide = true;
+    }
+    if (rimTooWide)
+      issues.push(
+        sh.mount === 'lip'
+          ? 'Shade inner wall is wider than the base top — the lip would overhang the base edge.'
+          : 'Base-mounted shade is wider than the base top; the groove would cut off the base edge.',
+      );
+  }
+  if (sh.mount === 'lip' && p.cup.size / 2 > surface.innerRadius(0, 0) - sh.baseGrooveClearance - 2.4)
+    issues.push('Socket cup is wider than the lip opening — reduce the cup size or widen the shade.');
 
   return {
     axisX,
     axisY,
+    baseBottom,
     baseTop,
     stemTop,
     cupTop,

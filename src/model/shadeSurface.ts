@@ -3,9 +3,12 @@ import { sectionRadius } from './section';
 
 /**
  * Nominal (style-free) OUTER surface of the shade, in shade-local coordinates:
- * t ∈ [0,1] bottom→top, phi = world angle (radians) about the lamp axis. Surface styles (ribs, weave…)
+ * t ∈ [0,1] bottom→top, phi = world angle (radians) about the lamp axis. Surface styles (ribs, texture…)
  * only ever displace OUTWARD from this surface; the inner wall is never closer to the axis than
- * `outerRadius − wallThickness`. Clearance and safety checks rely on that invariant.
+ * `outerRadius − wall`. Clearance and safety checks rely on that invariant.
+ *
+ * Profile shaping that is part of the silhouette — taper, bulge/custom profile, rounded shoulders and
+ * ripples — lives here (not in the styles), so clearance checks see it.
  */
 export interface ShadeSurface {
   height: number;
@@ -21,14 +24,40 @@ export interface ShadeSurface {
   wall(t: number): number;
 }
 
+const TAU = Math.PI * 2;
+
 export function shadeSurface(s: ShadeParams, bottomSize: number, topSize: number): ShadeSurface {
   const profile = profileFn(s);
   const size = (t: number) => (bottomSize + (topSize - bottomSize) * Math.pow(t, s.taperCurve)) * profile(t);
   const twist = (t: number) => s.twist * Math.pow(t, s.twistCurve);
+  const H = Math.max(1e-6, s.height);
+  // Rounded shoulders: radial pull-in following a quarter circle of radius R at each rim.
+  const minHalf = Math.min(bottomSize, topSize) / 2;
+  const rb = Math.max(0, Math.min(s.bottomRounding, H / 2, minHalf * 0.8));
+  const rt = Math.max(0, Math.min(s.topRounding, H / 2, minHalf * 0.8));
+  const shoulder = (t: number): number => {
+    const z = t * H;
+    let d = 0;
+    if (rb > 0 && z < rb) d = rb - Math.sqrt(Math.max(0, rb * rb - (rb - z) * (rb - z)));
+    if (rt > 0 && H - z < rt) d = Math.max(d, rt - Math.sqrt(Math.max(0, rt * rt - (rt - (H - z)) * (rt - (H - z)))));
+    return d;
+  };
+  // Ripples: soft horizontal bulges whose height wanders around the circumference (Malla).
+  const rc = Math.max(0, Math.round(s.rippleCount));
+  const ripple =
+    rc > 0 && s.rippleDepth > 0
+      ? (t: number, phi: number): number => {
+          const wob = s.rippleWobble * (Math.sin(phi) + 0.5 * Math.sin(2 * phi + 1.3));
+          const u = (t + wob / rc) * rc;
+          // fade at the rims so the ends stay round and seat cleanly
+          const fade = Math.min(1, Math.min(t, 1 - t) * rc * 2);
+          return s.rippleDepth * (0.5 - 0.5 * Math.cos(TAU * u)) * fade;
+        }
+      : null;
   const outerRadius = (t: number, phi: number) => {
     const local = phi - (twist(t) * Math.PI) / 180;
     const unit = (1 - t) * sectionRadius(s.bottomSection, local) + t * sectionRadius(s.topSection, local);
-    return size(t) * unit;
+    return size(t) * unit - shoulder(t) + (ripple ? ripple(t, phi) : 0);
   };
   const wall = (t: number) => {
     const zt = t * s.height;

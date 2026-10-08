@@ -13,6 +13,7 @@ import type {
 import { Collapsible, NumberField, Note, SubHeading, ToggleField, type Option } from './controls';
 import { makeFields } from './fields';
 import { SectionEditor } from './SectionEditor';
+import { TextureEditor } from './TextureEditor';
 import type { PanelProps } from './types';
 
 const SIZING: Array<Option<ShadeSizing>> = [
@@ -30,15 +31,16 @@ const CLOSURES: Array<Option<TopClosure>> = [
   { value: 'vented', label: 'Vented (holes)' },
 ];
 const MOUNTS: Array<Option<ShadeMount>> = [
+  { value: 'lip', label: 'Sleeve over base lip (flush)' },
+  { value: 'base', label: 'Seated in base groove' },
   { value: 'spider', label: 'Integrated spider' },
   { value: 'fitter', label: 'Separate fitter' },
-  { value: 'base', label: 'Seated in base groove' },
 ];
 const STYLES: Array<Option<SurfaceStyle>> = [
   { value: 'smooth', label: 'Smooth' },
   { value: 'ribs', label: 'Ribs / fins / pleats' },
+  { value: 'textured', label: 'Textured (knit, knurl, rope, weave)' },
   { value: 'perforated', label: 'Perforated' },
-  { value: 'wovenTexture', label: 'Woven texture' },
   { value: 'basket', label: 'Woven basket' },
 ];
 const WAVES: Array<Option<RibWave>> = [
@@ -68,9 +70,9 @@ function sectionsEqual(a: SectionParams, b: SectionParams): boolean {
   );
 }
 
-/** Vase mode needs a single continuous wall: smooth, corrugated ribs, or woven texture. */
+/** Vase mode needs a single continuous wall: smooth, corrugated ribs, or texture relief. */
 function vaseCompatible(s: LampParams['shade']): boolean {
-  return s.style === 'smooth' || s.style === 'wovenTexture' || (s.style === 'ribs' && s.ribCorrugated);
+  return s.style === 'smooth' || s.style === 'textured' || (s.style === 'ribs' && s.ribCorrugated);
 }
 
 export function ShadePanel({ p, edit }: PanelProps) {
@@ -162,6 +164,15 @@ export function ShadePanel({ p, edit }: PanelProps) {
         )}
         {f.num('Twist', (d) => d.shade, 'twist', -360, 360, 1, '°')}
         {f.num('Twist curve', (d) => d.shade, 'twistCurve', 0.2, 5, 0.05, undefined, '1 = linear easing')}
+        {f.num('Bottom shoulder rounding', (d) => d.shade, 'bottomRounding', 0, 120, 0.5, 'mm', 'Rounds the bottom rim inward (capsule shoulders)')}
+        {f.num('Top shoulder rounding', (d) => d.shade, 'topRounding', 0, 120, 0.5, 'mm', 'Rounds the top rim inward (capsule / dome)')}
+        {f.num('Ripples', (d) => d.shade, 'rippleCount', 0, 20, 1, undefined, 'Horizontal soft bulges along the height (0 = none)')}
+        {s.rippleCount > 0 && (
+          <>
+            {f.num('Ripple depth', (d) => d.shade, 'rippleDepth', 0.2, 15, 0.1, 'mm')}
+            {f.num('Ripple wobble', (d) => d.shade, 'rippleWobble', 0, 1, 0.01, undefined, 'How much each ripple wanders up and down around the shade')}
+          </>
+        )}
       </Collapsible>
 
       <Collapsible title="Wall, rims & top" nested>
@@ -197,10 +208,10 @@ export function ShadePanel({ p, edit }: PanelProps) {
             {f.num('Fitter clearance', (d) => d.shade, 'fitterClearance', 0, 2, 0.05, 'mm', 'Diametral fit clearance against the shade')}
           </>
         )}
-        {s.mount === 'base' && (
+        {(s.mount === 'base' || s.mount === 'lip') && (
           <>
-            {f.num('Groove depth', (d) => d.shade, 'baseGrooveDepth', 1, 20, 0.5, 'mm')}
-            {f.num('Groove clearance', (d) => d.shade, 'baseGrooveClearance', 0, 2, 0.05, 'mm')}
+            {f.num(s.mount === 'lip' ? 'Lip height' : 'Groove depth', (d) => d.shade, 'baseGrooveDepth', 1, 30, 0.5, 'mm')}
+            {f.num(s.mount === 'lip' ? 'Lip clearance' : 'Groove clearance', (d) => d.shade, 'baseGrooveClearance', 0, 2, 0.05, 'mm', 'Diametral fit clearance')}
           </>
         )}
       </Collapsible>
@@ -232,13 +243,7 @@ export function ShadePanel({ p, edit }: PanelProps) {
             )}
           </>
         )}
-        {s.style === 'wovenTexture' && (
-          <>
-            {f.num('Weave columns', (d) => d.shade, 'weaveColumns', 4, 120, 1)}
-            {f.num('Weave rows', (d) => d.shade, 'weaveRows', 2, 80, 1)}
-            {f.num('Relief depth', (d) => d.shade, 'weaveDepth', 0.2, 6, 0.1, 'mm')}
-          </>
-        )}
+        {s.style === 'textured' && <TextureEditor p={p} edit={edit} pick={(d) => d.shade.texture} />}
         {s.style === 'basket' && (
           <>
             {f.num('Strands per direction', (d) => d.shade, 'basketStrands', 4, 60, 1)}
@@ -251,10 +256,10 @@ export function ShadePanel({ p, edit }: PanelProps) {
       </Collapsible>
 
       <Collapsible title="Vase mode" nested>
-        {f.tog('Export shade as vase-mode solid', (d) => d.shade, 'vaseMode', 'Spiral-vase printing: smooth, corrugated ribs or woven texture only')}
+        {f.tog('Export shade as vase-mode solid', (d) => d.shade, 'vaseMode', 'Spiral-vase printing: smooth, corrugated ribs or textured only')}
         {s.vaseMode && f.num('Slicer line width', (d) => d.shade, 'vaseLineWidth', 0.3, 2, 0.05, 'mm', 'Used as the wall thickness in vase mode')}
         {s.vaseMode && !vaseCompatible(s) && (
-          <Note>Vase mode is only meaningful for smooth, corrugated-rib or woven-texture shades.</Note>
+          <Note>Vase mode is only meaningful for smooth, corrugated-rib or textured shades.</Note>
         )}
       </Collapsible>
     </Collapsible>

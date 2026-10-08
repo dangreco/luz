@@ -5,6 +5,7 @@ import { makeFields } from './fields';
 import { PRESETS } from './presets';
 import { SectionEditor } from './SectionEditor';
 import { ShadePanel } from './ShadePanel';
+import { TextureEditor } from './TextureEditor';
 import type { PanelProps } from './types';
 
 const BASES: Array<Option<SocketBase>> = [
@@ -142,19 +143,39 @@ export function ParamPanel({ p, edit, onReplace, onReset }: ParamPanelProps) {
             })
           }
         />
-        {f.num('Size', (d) => d.base, 'size', 60, 400, 1, 'mm')}
-        {f.num('Height', (d) => d.base, 'height', 6, 100, 0.5, 'mm')}
+        {f.num('Size', (d) => d.base, 'size', 40, 400, 1, 'mm')}
+        {f.num('Height', (d) => d.base, 'height', 6, 200, 0.5, 'mm')}
         {f.num('Top scale', (d) => d.base, 'topScale', 0.3, 1.5, 0.01)}
         {f.num('Twist', (d) => d.base, 'twist', -180, 180, 1, '°')}
         {f.sel('Edge style', (d) => d.base, 'edgeStyle', EDGES)}
         {f.num('Top edge radius', (d) => d.base, 'topEdgeRadius', 0, 30, 0.5, 'mm')}
         {f.num('Bottom edge radius', (d) => d.base, 'bottomEdgeRadius', 0, 30, 0.5, 'mm')}
-        {f.num('Weight pocket diameter', (d) => d.base, 'weightPocketDiameter', 0, 300, 1, 'mm', '0 = none')}
-        {p.base.weightPocketDiameter > 0 && f.num('Weight pocket depth', (d) => d.base, 'weightPocketDepth', 1, 60, 0.5, 'mm')}
-        {f.tog('Cord channel on the underside', (d) => d.base, 'cordChannel')}
+        {f.num('Hollow shell wall', (d) => d.base, 'shellWall', 0, 20, 0.2, 'mm', '0 = solid. Hollow bases are open underneath with a 45° self-supporting roof')}
+        <Collapsible title="Base texture" nested>
+          <TextureEditor p={p} edit={edit} pick={(d) => d.base.texture} />
+        </Collapsible>
+        <Collapsible title="Legs (tripod / stand)" nested>
+          {f.num('Leg count', (d) => d.base, 'legs', 0, 8, 1, undefined, '0 = base sits on the table; 3+ = splayed legs lift it')}
+          {p.base.legs >= 3 && (
+            <>
+              {f.num('Leg height', (d) => d.base, 'legHeight', 20, 600, 1, 'mm')}
+              {f.num('Spread at the floor', (d) => d.base, 'legSpread', 40, 800, 1, 'mm', 'Diameter of the circle through the leg tips')}
+              {f.num('Leg diameter (top)', (d) => d.base, 'legDiameter', 4, 60, 0.5, 'mm')}
+              {f.num('Leg diameter (tip)', (d) => d.base, 'legTipDiameter', 4, 60, 0.5, 'mm')}
+              {f.num('Leg root radius', (d) => d.base, 'legRootRadius', 0, 200, 0.5, 'mm', 'Where the leg axes start under the base')}
+            </>
+          )}
+        </Collapsible>
+        {p.base.legs < 3 && p.base.shellWall <= 0 && (
+          <>
+            {f.num('Weight pocket diameter', (d) => d.base, 'weightPocketDiameter', 0, 300, 1, 'mm', '0 = none')}
+            {p.base.weightPocketDiameter > 0 && f.num('Weight pocket depth', (d) => d.base, 'weightPocketDepth', 1, 60, 0.5, 'mm')}
+          </>
+        )}
+        {f.tog('Cord channel / notch', (d) => d.base, 'cordChannel', 'Underside channel (solid base) or rim notch (hollow base)')}
         {p.base.cordChannel && f.num('Cord exit angle', (d) => d.base, 'cordExitAngle', -180, 180, 1, '°')}
-        {f.num('Felt-pad recess count', (d) => d.base, 'feetCount', 0, 8, 1)}
-        {p.base.feetCount > 0 && (
+        {p.base.legs < 3 && f.num('Felt-pad recess count', (d) => d.base, 'feetCount', 0, 8, 1)}
+        {p.base.legs < 3 && p.base.feetCount > 0 && (
           <>
             {f.num('Recess diameter', (d) => d.base, 'feetDiameter', 4, 40, 0.5, 'mm')}
             {f.num('Recess depth', (d) => d.base, 'feetDepth', 0.2, 5, 0.1, 'mm')}

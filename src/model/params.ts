@@ -80,9 +80,28 @@ export interface BulbParams {
 
 export type EdgeStyle = 'fillet' | 'chamfer';
 
+/**
+ * Outward surface relief shared by the shade, base and cup (see model/texture.ts).
+ * knit: brick-staggered rounded bumps (Tela); knurl: diamond knurl from two crossing helices (Malla);
+ * ribs: vertical ribs, twisted into rope with `twist`; checker: over/under woven pillows (fine = linen).
+ */
+export type TexturePattern = 'none' | 'knit' | 'knurl' | 'ribs' | 'checker';
+
+export interface TextureParams {
+  pattern: TexturePattern;
+  /** cells around the circumference, 2..240 */
+  columns: number;
+  /** cells along the textured height, 1..300 */
+  rows: number;
+  /** relief depth, mm (outward only), 0..6 */
+  depth: number;
+  /** helical twist of the pattern over the textured height, degrees, -720..720 */
+  twist: number;
+}
+
 export interface BaseParams {
   section: SectionParams;
-  /** footprint size (circumscribed diameter) 60..400 */
+  /** footprint size (circumscribed diameter) 40..400 */
   size: number;
   height: number;
   /** top size / bottom size, 0.3..1.5 */
@@ -92,19 +111,34 @@ export interface BaseParams {
   edgeStyle: EdgeStyle;
   topEdgeRadius: number;
   bottomEdgeRadius: number;
+  texture: TextureParams;
+  /** hollow shell wall (0 = solid). Hollow bases are open underneath with a self-supporting 45° roof. */
+  shellWall: number;
   /** weight pocket in the bottom (0 diameter = none) */
   weightPocketDiameter: number;
   weightPocketDepth: number;
-  /** cord channel on the underside, from centre to the edge */
+  /** cord channel on the underside, from centre to the edge (solid plinths only) */
   cordChannel: boolean;
   /** direction the cord exits, degrees */
   cordExitAngle: number;
-  /** felt pad recesses on the underside */
+  /** felt pad recesses on the underside (solid plinths only) */
   feetCount: number;
   feetDiameter: number;
   feetDepth: number;
   /** distance of feet centres from the edge */
   feetInset: number;
+  /** splayed legs under the base (0 = solid plinth on the table; 3+ = tripod/legged stand) */
+  legs: number;
+  /** vertical height of the legs: table → base underside */
+  legHeight: number;
+  /** diameter of the circle through the leg tips on the table */
+  legSpread: number;
+  /** leg diameter where it joins the base */
+  legDiameter: number;
+  /** leg diameter at the (rounded) tip */
+  legTipDiameter: number;
+  /** radius on the base underside where the leg axes start */
+  legRootRadius: number;
 }
 
 export interface JointParams {
@@ -149,10 +183,16 @@ export interface CupParams {
   edgeRadius: number;
 }
 
-export type ShadeMount = 'spider' | 'fitter' | 'base';
+/**
+ * spider: hub + spokes inside the shade, clamped on the socket cup (hidden harp style).
+ * fitter: same, as a separate part seated in a groove at the shade bottom.
+ * base: shade bottom drops into a groove in a wider base top.
+ * lip: shade sleeves over a raised lip on the base top — flush outer surfaces (Tela / Malla).
+ */
+export type ShadeMount = 'spider' | 'fitter' | 'base' | 'lip';
 export type ShadeSizing = 'absolute' | 'clearance';
 export type ProfileMode = 'linear' | 'bulge' | 'custom';
-export type SurfaceStyle = 'smooth' | 'ribs' | 'perforated' | 'wovenTexture' | 'basket';
+export type SurfaceStyle = 'smooth' | 'ribs' | 'perforated' | 'textured' | 'basket';
 export type RibWave = 'sine' | 'triangle' | 'square' | 'scallop';
 export type PerfPattern = 'circles' | 'hexes' | 'slots' | 'diamonds' | 'voronoi';
 export type TopClosure = 'open' | 'closed' | 'vented';
@@ -205,7 +245,7 @@ export interface ShadeParams {
   /** fitter: outer rim height and diametral fit clearance against the shade */
   fitterRimHeight: number;
   fitterClearance: number;
-  /** base mount: groove depth in the base top and clearance */
+  /** base / lip mount: groove depth (base) or lip height (lip), and diametral clearance */
   baseGrooveDepth: number;
   baseGrooveClearance: number;
 
@@ -236,10 +276,16 @@ export interface ShadeParams {
   /** stagger alternate rows */
   perfStagger: boolean;
 
-  /** woven texture (surface relief) */
-  weaveColumns: number;
-  weaveRows: number;
-  weaveDepth: number;
+  /** textured style: relief pattern (knit, knurl, ribs/rope, checker/linen) */
+  texture: TextureParams;
+
+  /** rounded shoulders: fillet radius at the bottom / top rim of the nominal profile, mm */
+  bottomRounding: number;
+  topRounding: number;
+  /** horizontal ripples (Malla): count over the height, outward depth, and vertical wobble amplitude */
+  rippleCount: number;
+  rippleDepth: number;
+  rippleWobble: number;
 
   /** basket: interlaced helical strands */
   basketStrands: number;
@@ -250,7 +296,7 @@ export interface ShadeParams {
   /** solid rim bands at top/bottom of the basket */
   basketRim: number;
 
-  /** export as a solid body for spiral-vase printing (smooth / ribs-corrugated / wovenTexture only) */
+  /** export as a solid body for spiral-vase printing (smooth / ribs-corrugated / textured only) */
   vaseMode: boolean;
   /** slicer line width used as the wall thickness in vase mode */
   vaseLineWidth: number;
@@ -328,6 +374,8 @@ export const DEFAULT_PARAMS: LampParams = {
     edgeStyle: 'fillet',
     topEdgeRadius: 6,
     bottomEdgeRadius: 2,
+    texture: { pattern: 'none', columns: 48, rows: 12, depth: 0.8, twist: 0 },
+    shellWall: 0,
     weightPocketDiameter: 0,
     weightPocketDepth: 8,
     cordChannel: true,
@@ -336,6 +384,12 @@ export const DEFAULT_PARAMS: LampParams = {
     feetDiameter: 12,
     feetDepth: 1,
     feetInset: 14,
+    legs: 0,
+    legHeight: 140,
+    legSpread: 220,
+    legDiameter: 18,
+    legTipDiameter: 12,
+    legRootRadius: 22,
   },
   stem: {
     height: 120,
@@ -407,9 +461,12 @@ export const DEFAULT_PARAMS: LampParams = {
     perfMargin: 12,
     perfSeed: 7,
     perfStagger: true,
-    weaveColumns: 32,
-    weaveRows: 14,
-    weaveDepth: 1.6,
+    texture: { pattern: 'knit', columns: 64, rows: 70, depth: 1.2, twist: 0 },
+    bottomRounding: 0,
+    topRounding: 0,
+    rippleCount: 0,
+    rippleDepth: 4,
+    rippleWobble: 0.15,
     basketStrands: 16,
     basketStrandWidth: 5,
     basketStrandThickness: 1.6,

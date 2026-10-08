@@ -7,6 +7,7 @@ import type {
   SectionParams,
 } from '../model/params';
 import { angles, sectionRadius, sectionRing } from '../model/section';
+import { textureField, textureSampling } from '../model/texture';
 import type { SolidPart } from './build';
 import { loftSolid, loftTube, type Vec3 } from './mesh';
 import type { Manifold, ManifoldToplevel } from './wasm';
@@ -101,12 +102,17 @@ interface ProfileLoft {
   /** continue the end ring downward/upward (fused-joint embed) */
   extendDown?: number;
   extendUp?: number;
+  /** outward relief d(phi, v) on the straight wall between the edge bands (v = 0..1 over that band) */
+  relief?: (phi: number, v: number) => number;
+  /** extra rings through the straight wall (texture rows) */
+  wallRings?: number;
 }
 
 /**
  * Loft a body whose vertical section profile rounds or chamfers the bottom and top edges:
  * the ring is inset by the edge profile at each height (a profile-swept loft). Edge radii are
  * clamped so the two bands never overlap and the ring is never inset past its own inradius.
+ * An optional relief displaces the straight wall outward (base textures), fading into the edge bands.
  */
 function profileLoft(m: ManifoldToplevel, phis: Float64Array, o: ProfileLoft): Manifold {
   const height = Math.max(1, o.height);
@@ -125,7 +131,9 @@ function profileLoft(m: ManifoldToplevel, phis: Float64Array, o: ProfileLoft): M
   } else {
     ts.push(0);
   }
-  if (height - rt > rb + 0.05) ts.push((rb + height - rt) / 2);
+  const wallN = Math.max(1, o.relief ? (o.wallRings ?? 1) : 1);
+  for (let j = 1; j < wallN; j++) ts.push(rb + ((height - rt - rb) * j) / wallN);
+  if (wallN === 1 && height - rt > rb + 0.05) ts.push((rb + height - rt) / 2);
   if (rt > 0.05) {
     for (let j = 0; j <= EDGE_SEGS; j++) {
       const t = height - rt + (rt * j) / EDGE_SEGS;
@@ -136,13 +144,41 @@ function profileLoft(m: ManifoldToplevel, phis: Float64Array, o: ProfileLoft): M
   }
   if ((o.extendUp ?? 0) > 0) ts.push(height + o.extendUp!);
 
+  const wallH = Math.max(1e-6, height - rt - rb);
   const rings = ts.map((t) => {
     const f = clamp(t / height, 0, 1);
     const size = o.sizeBottom + (o.sizeTop - o.sizeBottom) * f;
     const inset = t >= 0 && t <= rb ? edgeInset(o.style, rb, t) : t >= height - rt ? edgeInset(o.style, rt, height - t) : 0;
-    return ringAt(o.section, size, o.z0 + t, phis, o.twist * f, inset, o.cx ?? 0, o.cy ?? 0);
+    const ring = ringAt(o.section, size, o.z0 + t, phis, o.twist * f, inset, o.cx ?? 0, o.cy ?? 0);
+    if (!o.relief || t <= rb + 1e-6 || t >= height - rt - 1e-6) return ring;
+    const v = (t - rb) / wallH;
+    const cx = o.cx ?? 0;
+    const cy = o.cy ?? 0;
+    return ring.map(([x, y, z], k) => {
+      const d = o.relief!(phis[k], v);
+      const r = Math.hypot(x - cx, y - cy);
+      const s = r > 1e-9 ? (r + d) / r : 1;
+      return [cx + (x - cx) * s, cy + (y - cy) * s, z] as Vec3;
+    });
   });
   return loftSolid(m, rings);
+}
+
+/** Tapered round leg from `top` (at the base underside) to `tip` (on the table), with a domed foot. */
+function legSolid(m: ManifoldToplevel, top: Vec3, tip: Vec3, rTop: number, rTip: number, seg: number): Manifold {
+  const dx = tip[0] - top[0];
+  const dy = tip[1] - top[1];
+  const dz = tip[2] - top[2];
+  const len = Math.hypot(dx, dy, dz);
+  // build along +Z from the tip, then tilt to the leg direction (pointing from tip up to top)
+  const ux = -dx / len;
+  const uy = -dy / len;
+  const uz = -dz / len;
+  const tilt = Math.acos(clamp(uz, -1, 1)) / DEG;
+  const yaw = Math.atan2(uy, ux) / DEG;
+  const shaft = m.Manifold.cylinder(len, rTip, rTop, seg);
+  const foot = m.Manifold.sphere(rTip, seg);
+  return m.Manifold.union([shaft, foot]).rotate([0, tilt, 0]).rotate([0, 0, yaw]).translate(tip[0], tip[1], tip[2]);
 }
 
 /** Vertical cutting cylinder from zBottom to zTop at (cx, cy). */
@@ -287,8 +323,9 @@ function planCup(p: LampParams, layout: Layout, cordD: number, stemBoreD: number
 }
 
 /**
- * Base: profile-swept loft with rounded/chamfered edges, weight pocket, felt-pad recesses,
- * plug-rated cord channel and vertical bore, felt feet, and (shade mount 'base') the shade groove.
+ * Base: profile-swept loft with rounded/chamfered edges and optional surface texture; solid (weight pocket,
+ * felt-pad recesses, cord channel underneath) or hollow (open underneath, 45° self-supporting roof, cord
+ * notch in the rim); optional splayed legs; and the shade seat — a groove ('base') or a raised lip ('lip').
  */
 function buildBaseSolid(
   m: ManifoldToplevel,
@@ -301,28 +338,68 @@ function buildBaseSolid(
 ): Manifold {
   const b = p.base;
   const hw = p.hardware;
-  let solid = profileLoft(m, phis, {
+  const zb = layout.baseBottom;
+  const legged = b.legs >= 3;
+  const hollow = b.shellWall > 0;
+  const texture = textureField(b.texture);
+  const texRows = textureSampling(b.texture).along;
+  const textured = b.texture.pattern !== 'none' && b.texture.depth > 0;
+  // texture needs denser angular sampling than the plain loft
+  const tphis = textured ? angles(Math.max(phis.length, textureSampling(b.texture).around)) : phis;
+  let solid = profileLoft(m, tphis, {
     section: b.section,
     sizeBottom: b.size,
     sizeTop: b.size * b.topScale,
     twist: b.twist,
-    z0: 0,
+    z0: zb,
     height: b.height,
     style: b.edgeStyle,
     bottomRadius: b.bottomEdgeRadius,
     topRadius: b.topEdgeRadius,
+    relief: textured ? texture : undefined,
+    wallRings: texRows,
   });
   const tools: Manifold[] = [];
+  const adds: Manifold[] = [];
 
-  if (b.weightPocketDiameter > 0 && b.weightPocketDepth > 0) {
+  if (hollow) {
+    // Inner cavity: section inset by the shell wall, open at the bottom. The roof is flat with a 45° chamfer
+    // around the perimeter (≤ 8 mm), so it prints as a short bridge from the boss outward without supports;
+    // the roof keeps `shellWall` thickness under the base top.
+    const wall = b.shellWall;
+    const inR: number[] = Array.from(phis, (phi) => {
+      const rb = sectionRadius(b.section, phi) * b.size;
+      const rt = sectionRadius(b.section, phi - b.twist * DEG) * b.size * b.topScale;
+      return Math.max(1, Math.min(rb, rt) - wall - Math.max(b.bottomEdgeRadius, b.topEdgeRadius) * 0.3);
+    });
+    const roofTop = zb + b.height - wall;
+    const chamfer = Math.min(8, Math.max(0, roofTop - zb - 1), Math.min(...inR) - 1);
+    const zs = [zb - THROUGH, roofTop - chamfer, roofTop];
+    const rings = zs.map((z, j) =>
+      inR.map((r, i) => {
+        const rr = j < 2 ? r : Math.max(0.5, r - chamfer);
+        return [rr * Math.cos(phis[i]), rr * Math.sin(phis[i]), z] as Vec3;
+      }),
+    );
+    // Solid boss on the lamp axis, floor to roof: carries the stem/cup spigot hole and the cord bore,
+    // and shortens the roof bridge.
+    const bossR = Math.max(hole ? hole.diameter / 2 : 0, cordBoreDiameter(hw) / 2) + 3;
+    const boss = bore(m, 2 * bossR, zb - 2 * THROUGH, zb + b.height, layout.axisX, layout.axisY, seg);
+    tools.push(loftSolid(m, rings).subtract(boss));
+    boss.delete();
+    const span = Math.max(...inR) - chamfer - bossR;
+    notes.push(
+      `Hollow shell, ${r1(wall)} mm wall, open underneath; flat roof bridges ${r1(span)} mm from the central boss${span > 40 ? ' — print upright with supports, or flipped (top on the bed)' : ''}.`,
+    );
+  } else if (!legged && b.weightPocketDiameter > 0 && b.weightPocketDepth > 0) {
     const depth = Math.min(b.weightPocketDepth, b.height * 0.7);
     const diameter = Math.min(b.weightPocketDiameter, 2 * Math.max(2, minInradius(b.section, b.size, phis) - 3));
-    tools.push(bore(m, diameter, -THROUGH, depth, 0, 0, seg));
+    tools.push(bore(m, diameter, zb - THROUGH, zb + depth, 0, 0, seg));
     const grams = Math.round((Math.PI * (diameter / 2) ** 2 * depth * 1.6) / 1000);
     notes.push(`Weight pocket Ø${r1(diameter)} × ${r1(depth)} mm — about ${grams} g of sand or steel shot.`);
   }
 
-  if (b.feetCount > 0 && b.feetDiameter > 0 && b.feetDepth > 0) {
+  if (!legged && !hollow && b.feetCount > 0 && b.feetDiameter > 0 && b.feetDepth > 0) {
     const exit = b.cordExitAngle;
     let placed = 0;
     for (let i = 0; i < b.feetCount; i++) {
@@ -331,22 +408,20 @@ function buildBaseSolid(
       if (dAngle < 20) continue; // keep the pad recesses clear of the cord channel
       const rEdge = sectionRadius(b.section, a) * b.size;
       const rc = Math.max(0, rEdge - b.feetInset);
-      tools.push(bore(m, b.feetDiameter, -THROUGH, b.feetDepth, Math.cos(a) * rc, Math.sin(a) * rc, seg));
+      tools.push(bore(m, b.feetDiameter, zb - THROUGH, zb + b.feetDepth, Math.cos(a) * rc, Math.sin(a) * rc, seg));
       placed++;
     }
     if (placed > 0)
       notes.push(`Felt pads: ${placed} × Ø${r1(b.feetDiameter)} mm, ${r1(b.feetDepth)} mm recesses under the base.`);
   }
 
-  // Vertical cord bore on the lamp axis, meeting the channel underneath and the stem above.
-  tools.push(
-    bore(m, cordBoreDiameter(hw), -THROUGH, b.height + THROUGH, layout.axisX, layout.axisY, seg),
-  );
+  // Vertical cord bore on the lamp axis, meeting the channel underneath and the stem/cup above.
+  tools.push(bore(m, cordBoreDiameter(hw), zb - THROUGH, layout.baseTop + THROUGH, layout.axisX, layout.axisY, seg));
 
-  if (b.cordChannel) {
+  if (b.cordChannel && !legged) {
     const w = (hw.prewiredCord ? hw.plugWidth : hw.cordWidth) + 2 * CORD_CLEAR;
     let h = (hw.prewiredCord ? hw.plugThickness : hw.cordThickness) + 2 * CORD_CLEAR;
-    if (h > b.height - 0.5) {
+    if (!hollow && h > b.height - 0.5) {
       h = b.height - 0.5;
       notes.push('Cord channel breaks through the base top — raise the base or use a detachable cord.');
     }
@@ -356,20 +431,21 @@ function buildBaseSolid(
     const rEdge = Math.max(
       sectionRadius(b.section, exit) * b.size,
       sectionRadius(b.section, exit - b.twist * DEG) * b.size * b.topScale,
-    );
-    const s0 = -w * 0.5;
+    ) + b.texture.depth;
+    // hollow: only a notch through the rim wall; solid: a full channel from the axis
+    const s0 = hollow ? rEdge - b.shellWall - 4 : -w * 0.5;
     const s1 = rEdge + 2;
-    const N = 10;
+    const N = hollow ? 2 : 10;
     const rings: Vec3[][] = [];
     for (let j = 0; j <= N; j++) {
       const s = s0 + ((s1 - s0) * j) / N;
-      const px = layout.axisX + dir[0] * s;
-      const py = layout.axisY + dir[1] * s;
+      const px = (hollow ? 0 : layout.axisX) + dir[0] * s;
+      const py = (hollow ? 0 : layout.axisY) + dir[1] * s;
       rings.push([
-        [px + perp[0] * (w / 2), py + perp[1] * (w / 2), -THROUGH],
-        [px - perp[0] * (w / 2), py - perp[1] * (w / 2), -THROUGH],
-        [px - perp[0] * (w / 2), py - perp[1] * (w / 2), h],
-        [px + perp[0] * (w / 2), py + perp[1] * (w / 2), h],
+        [px + perp[0] * (w / 2), py + perp[1] * (w / 2), zb - THROUGH],
+        [px - perp[0] * (w / 2), py - perp[1] * (w / 2), zb - THROUGH],
+        [px - perp[0] * (w / 2), py - perp[1] * (w / 2), zb + h],
+        [px + perp[0] * (w / 2), py + perp[1] * (w / 2), zb + h],
       ]);
     }
     tools.push(loftSolid(m, rings));
@@ -377,21 +453,61 @@ function buildBaseSolid(
       notes.push(`Cord route sized for the moulded plug (${r1(hw.plugWidth)} × ${r1(hw.plugThickness)} mm).`);
   }
 
-  if (p.shade.mount === 'base') {
+  // Legs are unioned after the cavity cut (below) so a hollow base keeps solid leg roots.
+  const legs: Manifold[] = [];
+  if (legged) {
+    const count = Math.round(b.legs);
+    const rTop = b.legDiameter / 2;
+    const rTip = b.legTipDiameter / 2;
+    const rootR = clamp(b.legRootRadius, 0, Math.max(0, minInradius(b.section, b.size, phis) - rTop));
+    for (let i = 0; i < count; i++) {
+      const a = (i / count) * TAU + TAU / (2 * count) + b.cordExitAngle * DEG;
+      // legs embed into the base (up to just under its top) so the union is solid
+      const top: Vec3 = [Math.cos(a) * rootR, Math.sin(a) * rootR, zb + Math.max(1, b.height - Math.max(1.5, b.shellWall))];
+      const tip: Vec3 = [Math.cos(a) * (b.legSpread / 2 - rTip), Math.sin(a) * (b.legSpread / 2 - rTip), rTip];
+      legs.push(legSolid(m, top, tip, rTop, rTip, Math.max(24, Math.min(seg, 48))));
+    }
+    notes.push(
+      `${count} legs, ${r1(b.legDiameter)}→${r1(b.legTipDiameter)} mm, ${r1(b.legSpread)} mm spread. Prints upside down (base top on the bed); the cord drops from the base centre between the legs.`,
+    );
+  }
+
+  if (p.shade.mount === 'base' || p.shade.mount === 'lip') {
     const c = p.shade.baseGrooveClearance;
-    const zs = [layout.shadeBottom, layout.baseTop + THROUGH];
     const outerR: number[] = [];
     const innerR: number[] = [];
     for (let i = 0; i < phis.length; i++) {
-      const ro = layout.shade.outerRadius(0, phis[i]) + c;
-      outerR.push(ro);
-      innerR.push(Math.max(0, Math.min(layout.shade.innerRadius(0, phis[i]) - c, ro - 0.4)));
+      const rOut = layout.shade.outerRadius(0, phis[i]);
+      const rIn = layout.shade.innerRadius(0, phis[i]);
+      if (p.shade.mount === 'base') {
+        outerR.push(rOut + c);
+        innerR.push(Math.max(0, Math.min(rIn - c, rOut + c - 0.4)));
+      } else {
+        // lip: raised ring inside the shade bottom; wall 2.4 mm, outer face = shade inner wall − clearance
+        const ro = Math.max(1, rIn - c);
+        outerR.push(ro);
+        innerR.push(Math.max(0.5, ro - 2.4));
+      }
     }
-    const outer = zs.map((z) => outerR.map((r, i) => [r * Math.cos(phis[i]), r * Math.sin(phis[i]), z] as Vec3));
-    const inner = zs.map((z) => innerR.map((r, i) => [r * Math.cos(phis[i]), r * Math.sin(phis[i]), z] as Vec3));
-    tools.push(loftTube(m, outer, inner));
-    notes.push(`Shade seats in the base groove (${r1(2 * c)} mm diametral clearance, ${r1(p.shade.baseGrooveDepth)} mm deep).`);
+    const ringOf = (radii: number[], z: number): Vec3[] =>
+      radii.map((r, i) => [r * Math.cos(phis[i]), r * Math.sin(phis[i]), z] as Vec3);
+    if (p.shade.mount === 'base') {
+      const zs = [layout.shadeBottom, layout.baseTop + THROUGH];
+      tools.push(loftTube(m, zs.map((z) => ringOf(outerR, z)), zs.map((z) => ringOf(innerR, z))));
+      notes.push(`Shade seats in the base groove (${r1(2 * c)} mm diametral clearance, ${r1(p.shade.baseGrooveDepth)} mm deep).`);
+    } else {
+      // lip from slightly inside the base top (solid union) up by the lip height, with a 0.8 mm lead-in chamfer
+      const zLo = layout.baseTop - 0.5;
+      const zHi = layout.baseTop + p.shade.baseGrooveDepth;
+      const zs = [zLo, zHi - 0.8, zHi];
+      const outs = [ringOf(outerR, zs[0]), ringOf(outerR, zs[1]), ringOf(outerR.map((r) => r - 0.8), zs[2])];
+      const ins = zs.map((z) => ringOf(innerR, z));
+      adds.push(loftTube(m, outs, ins));
+      notes.push(`Shade sleeves over a ${r1(p.shade.baseGrooveDepth)} mm lip (${r1(2 * c)} mm diametral clearance) — outer surfaces sit flush.`);
+    }
   }
+
+  if (adds.length) solid = m.Manifold.union([solid, ...adds]);
 
   if (hole) {
     tools.push(
@@ -402,6 +518,13 @@ function buildBaseSolid(
   for (const t of tools) {
     solid = solid.subtract(t);
     t.delete();
+  }
+  if (legs.length) {
+    solid = m.Manifold.union([solid, ...legs]);
+    // keep the cord path through the base clear of the leg roots
+    const cord = bore(m, cordBoreDiameter(hw), zb - THROUGH, layout.baseTop + THROUGH, layout.axisX, layout.axisY, seg);
+    solid = solid.subtract(cord);
+    cord.delete();
   }
   return solid;
 }
@@ -672,7 +795,9 @@ export function buildStructure(m: ManifoldToplevel, p: LampParams, layout: Layou
       emit('base', 'Base', baseSolid, false, baseNotes);
       emit('stem', 'Stem', stemSolid!, false, stemNotes);
     } else {
-      emit('base', 'Base', baseSolid, false, baseNotes);
+      // Legs splay downward: print a legged base top-down unless a raised lip sits on top.
+      const flip = p.base.legs >= 3 && p.shade.mount !== 'lip';
+      emit('base', 'Base', baseSolid, flip, flip ? baseNotes : baseNotes.map((n) => n.replace('Prints upside down (base top on the bed)', 'Prints upright with supports under the leg roots (the lip sits on top)')));
     }
     emit('cup', 'Socket cup', cupSolid, true, cupNotes);
   }
