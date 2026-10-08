@@ -1,5 +1,5 @@
-import { BULB_SHAPES, BULB_TECH, MATERIALS, SOCKET_PRESETS } from '../model/hardware';
-import type { BulbTech, EdgeStyle, LampParams, MaterialId, SocketBase, SocketMount } from '../model/params';
+import { BULB_SHAPES, BULB_TECH, DOWEL_MATERIALS, MATERIALS, SOCKET_PRESETS } from '../model/hardware';
+import type { BulbTech, DowelMaterial, EdgeStyle, LampParams, LegKind, MaterialId, SocketBase, SocketMount } from '../model/params';
 import { Collapsible, Note, SubHeading, type Option } from './controls';
 import { makeFields } from './fields';
 import { PRESETS } from './presets';
@@ -32,6 +32,14 @@ const JOINTS: Array<Option<'fused' | 'spigot'>> = [
   { value: 'spigot', label: 'Separate parts, press-fit spigot' },
   { value: 'fused', label: 'Fused (one printed body)' },
 ];
+const LEG_KINDS: Array<Option<LegKind>> = [
+  { value: 'printed', label: 'Printed (part of the base)' },
+  { value: 'dowel', label: 'Dowels / rods in printed sockets' },
+];
+const DOWEL_OPTIONS: Array<Option<DowelMaterial>> = (Object.keys(DOWEL_MATERIALS) as DowelMaterial[]).map((value) => ({
+  value,
+  label: DOWEL_MATERIALS[value].label,
+}));
 
 export interface ParamPanelProps extends PanelProps {
   onReplace(next: LampParams): void;
@@ -158,10 +166,24 @@ export function ParamPanel({ p, edit, onReplace, onReset }: ParamPanelProps) {
           {f.num('Leg count', (d) => d.base, 'legs', 0, 8, 1, undefined, '0 = base sits on the table; 3+ = splayed legs lift it')}
           {p.base.legs >= 3 && (
             <>
+              {f.sel('Leg type', (d) => d.base, 'legKind', LEG_KINDS)}
               {f.num('Leg height', (d) => d.base, 'legHeight', 20, 600, 1, 'mm')}
               {f.num('Spread at the floor', (d) => d.base, 'legSpread', 40, 800, 1, 'mm', 'Diameter of the circle through the leg tips')}
-              {f.num('Leg diameter (top)', (d) => d.base, 'legDiameter', 4, 60, 0.5, 'mm')}
-              {f.num('Leg diameter (tip)', (d) => d.base, 'legTipDiameter', 4, 60, 0.5, 'mm')}
+              {p.base.legKind === 'printed' ? (
+                <>
+                  {f.num('Leg diameter (top)', (d) => d.base, 'legDiameter', 4, 60, 0.5, 'mm')}
+                  {f.num('Leg diameter (tip)', (d) => d.base, 'legTipDiameter', 4, 60, 0.5, 'mm')}
+                </>
+              ) : (
+                <>
+                  {f.sel('Dowel material', (d) => d.base, 'dowelMaterial', DOWEL_OPTIONS, 'Used for the stability estimate (rod weight)')}
+                  {f.num('Dowel diameter', (d) => d.base, 'dowelDiameter', 3, 40, 0.1, 'mm', 'Measure yours: 1/4 in = 6.35, 3/8 in = 9.5, 1/2 in = 12.7, 5/8 in = 15.9')}
+                  {f.num('Socket clearance', (d) => d.base, 'dowelClearance', 0, 2, 0.05, 'mm', 'Diametral: ≈ 0.2 press fit, 0.4–0.6 glue fit')}
+                  {f.num('Insertion depth', (d) => d.base, 'dowelSocketDepth', 8, 120, 1, 'mm', 'How far each dowel goes into its socket, along the leg')}
+                  {f.num('Sleeve wall', (d) => d.base, 'dowelSleeveWall', 1.2, 10, 0.2, 'mm', 'Printed wall around each socket')}
+                  <Note>Dowel cut length is listed in the base part notes.</Note>
+                </>
+              )}
               {f.num('Leg root radius', (d) => d.base, 'legRootRadius', 0, 200, 0.5, 'mm', 'Where the leg axes start under the base')}
             </>
           )}

@@ -1,6 +1,6 @@
 import { BULB_SHAPES, bulbProfile, type BulbShape } from './hardware';
 import type { LampParams } from './params';
-import { sectionRadius } from './section';
+import { angles, sectionRadius } from './section';
 import { shadeSurface, type ShadeSurface } from './shadeSurface';
 
 /**
@@ -17,6 +17,13 @@ import { shadeSurface, type ShadeSurface } from './shadeSurface';
  *   contact  bulb centre contact; bulb grows upward along +Z from here
  *   shade    z ∈ [shadeBottom, shadeBottom + shade.height]
  */
+export interface LegAxis {
+  /** upper end of the leg axis, inside the base just under its top skin */
+  top: [number, number, number];
+  /** lower end: centre of the printed foot sphere, or the dowel axis on the table (z = 0) */
+  tip: [number, number, number];
+}
+
 export interface Layout {
   axisX: number;
   axisY: number;
@@ -49,6 +56,8 @@ export interface Layout {
   totalHeight: number;
   /** human-readable problems with the stack itself (not safety) */
   issues: string[];
+  /** base.legs ≥ 3: one axis per leg (printed or dowel), else empty */
+  legs: LegAxis[];
 }
 
 export function bulbFor(p: LampParams): BulbShape {
@@ -118,6 +127,28 @@ export function computeLayout(p: LampParams): Layout {
   const axisX = p.stem.height > 0 ? p.stem.offsetX : 0;
   const axisY = p.stem.height > 0 ? p.stem.offsetY : 0;
   const baseBottom = p.base.legs >= 3 ? Math.max(0, p.base.legHeight) : 0;
+  const legs: LegAxis[] = [];
+  if (p.base.legs >= 3) {
+    const b = p.base;
+    const count = Math.round(b.legs);
+    const dowel = b.legKind === 'dowel';
+    // radius of the leg (or dowel sleeve) where it meets the base, and of its foot on the table
+    const rTop = dowel ? (b.dowelDiameter + b.dowelClearance) / 2 + b.dowelSleeveWall : b.legDiameter / 2;
+    const rFoot = dowel ? b.dowelDiameter / 2 : b.legTipDiameter / 2;
+    let inradius = Infinity;
+    for (const phi of angles(p.quality.radialSegments)) inradius = Math.min(inradius, sectionRadius(b.section, phi) * b.size);
+    const rootR = Math.min(Math.max(0, b.legRootRadius), Math.max(0, inradius - rTop));
+    // axes start just under the base top skin so a printed leg's union with the base is solid
+    const zTop = baseBottom + Math.max(1, b.height - Math.max(1.5, b.shellWall));
+    const rTip = b.legSpread / 2 - rFoot;
+    for (let i = 0; i < count; i++) {
+      const a = (i / count) * Math.PI * 2 + Math.PI / count + (b.cordExitAngle * Math.PI) / 180;
+      legs.push({
+        top: [Math.cos(a) * rootR, Math.sin(a) * rootR, zTop],
+        tip: [Math.cos(a) * rTip, Math.sin(a) * rTip, dowel ? 0 : rFoot],
+      });
+    }
+  }
   const baseTop = baseBottom + p.base.height;
   const stemTop = baseTop + Math.max(0, p.stem.height);
   const cupTop = stemTop + p.cup.height;
@@ -228,5 +259,6 @@ export function computeLayout(p: LampParams): Layout {
     hubHoleDiameter,
     totalHeight: Math.max(shadeTop, bulbTop, socketTop),
     issues,
+    legs,
   };
 }

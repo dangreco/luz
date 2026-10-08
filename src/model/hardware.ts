@@ -1,4 +1,4 @@
-import type { BulbTech, MaterialId, SocketBase, SocketSpec } from './params';
+import type { BulbTech, DowelMaterial, MaterialId, SocketBase, SocketSpec } from './params';
 
 const IN = 25.4;
 
@@ -164,6 +164,13 @@ export const MATERIALS: Record<MaterialId, MaterialInfo> = {
   ASA: { label: 'ASA', hdt: 93, density: 1.07, source: 'Prusament ASA TDS v1.1 (ISO 75, 0.45 MPa)' },
   ABS: { label: 'ABS', hdt: 88, density: 1.04, source: 'typical FDM ABS (ISO 75-2 HDT/B 80–93 °C)' },
   PC: { label: 'PC Blend', hdt: 113, density: 1.22, source: 'Prusament PC Blend TDS v1.1 (ISO 75, 0.45 MPa)' },
+};
+
+/** Bought dowels / rods for dowel legs: density (g/cm³) for the stability estimate, preview colour. */
+export const DOWEL_MATERIALS: Record<DowelMaterial, { label: string; density: number; color: number }> = {
+  wood: { label: 'Hardwood dowel (oak/maple ≈ 0.7)', density: 0.7, color: 0xc19a6b },
+  aluminum: { label: 'Aluminium rod', density: 2.7, color: 0xb8bec6 },
+  steel: { label: 'Steel rod', density: 7.85, color: 0x7d838c },
 };
 
 /* ---------------------------------------------------------------------------------------------------------

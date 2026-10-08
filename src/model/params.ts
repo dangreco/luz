@@ -129,17 +129,31 @@ export interface BaseParams {
   feetInset: number;
   /** splayed legs under the base (0 = solid plinth on the table; 3+ = tripod/legged stand) */
   legs: number;
+  /** 'printed': legs are part of the base. 'dowel': the base has angled sockets for bought wooden dowels / metal rods. */
+  legKind: LegKind;
   /** vertical height of the legs: table → base underside */
   legHeight: number;
   /** diameter of the circle through the leg tips on the table */
   legSpread: number;
-  /** leg diameter where it joins the base */
+  /** printed legs: diameter where the leg joins the base */
   legDiameter: number;
-  /** leg diameter at the (rounded) tip */
+  /** printed legs: diameter at the (rounded) tip */
   legTipDiameter: number;
   /** radius on the base underside where the leg axes start */
   legRootRadius: number;
+  /** dowel legs: measured dowel / rod diameter (1/2 in = 12.7) */
+  dowelDiameter: number;
+  /** dowel legs: diametral clearance added to the socket bore (press/glue fit ≈ 0.2–0.5) */
+  dowelClearance: number;
+  /** dowel legs: how far the dowel inserts into its socket, along the leg axis */
+  dowelSocketDepth: number;
+  /** dowel legs: printed wall around each socket */
+  dowelSleeveWall: number;
+  dowelMaterial: DowelMaterial;
 }
+
+export type LegKind = 'printed' | 'dowel';
+export type DowelMaterial = 'wood' | 'aluminum' | 'steel';
 
 export interface JointParams {
   /** 'fused' = the two parts are one printed body; 'spigot' = separate parts with a press-fit spigot */
@@ -385,11 +399,17 @@ export const DEFAULT_PARAMS: LampParams = {
     feetDepth: 1,
     feetInset: 14,
     legs: 0,
+    legKind: 'printed',
     legHeight: 140,
     legSpread: 220,
     legDiameter: 18,
     legTipDiameter: 12,
     legRootRadius: 22,
+    dowelDiameter: 12.7,
+    dowelClearance: 0.4,
+    dowelSocketDepth: 30,
+    dowelSleeveWall: 3,
+    dowelMaterial: 'wood',
   },
   stem: {
     height: 120,

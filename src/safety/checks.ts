@@ -3,6 +3,7 @@ import type { Vec3 } from '../geometry/mesh';
 import {
   BULB_SHAPES,
   BULB_TECH,
+  DOWEL_MATERIALS,
   MATERIALS,
   UL153_CLOSED_CLOSED,
   UL153_CLOSED_OPEN,
@@ -629,6 +630,14 @@ function stabilityCheck(p: LampParams, build: LampBuild): SafetyCheck {
   });
   masses.push({ m: e26 ? 50 : 25, c: [bulbC.x, bulbC.y, bulbC.z] });
   masses.push({ m: 20, c: [layout.axisX, layout.axisY, (layout.baseBottom + layout.baseTop) / 2] }); // cord in the base
+  const dowels = p.base.legKind === 'dowel' ? layout.legs : [];
+  let dowelGrams = 0;
+  for (const { top, tip } of dowels) {
+    const len = Math.hypot(top[0] - tip[0], top[1] - tip[1], top[2] - tip[2]);
+    const grams = ((Math.PI * (p.base.dowelDiameter / 2) ** 2 * len) / 1000) * DOWEL_MATERIALS[p.base.dowelMaterial].density;
+    dowelGrams += grams;
+    masses.push({ m: grams, c: [(top[0] + tip[0]) / 2, (top[1] + tip[1]) / 2, (top[2] + tip[2]) / 2] });
+  }
   let m = 0;
   let cx = 0;
   let cy = 0;
@@ -645,14 +654,10 @@ function stabilityCheck(p: LampParams, build: LampBuild): SafetyCheck {
 
   // Support polygon: the leg tips for a legged stand, else the convex hull of the base's bottom ring
   // inset by the bottom edge radius.
-  const legged = p.base.legs >= 3;
+  const legged = layout.legs.length > 0;
   const phis = angles(AREA_STEPS);
   const ring: Vec2[] = legged
-    ? Array.from({ length: Math.round(p.base.legs) }, (_, i) => {
-        const a = (i / Math.round(p.base.legs)) * Math.PI * 2 + Math.PI / Math.round(p.base.legs) + (p.base.cordExitAngle * Math.PI) / 180;
-        const r = p.base.legSpread / 2 - p.base.legTipDiameter / 2;
-        return [r * Math.cos(a), r * Math.sin(a)] as Vec2;
-      })
+    ? layout.legs.map(({ tip }) => [tip[0], tip[1]] as Vec2)
     : sectionRing(p.base.section, p.base.size, phis, 0, p.base.bottomEdgeRadius);
   const hull = convexHull(ring);
 
@@ -685,7 +690,7 @@ function stabilityCheck(p: LampParams, build: LampBuild): SafetyCheck {
     status,
     detail:
       `Assembled centre of mass: ${fmt(m, 0)} g at ${fmt(cz)} mm above the table (includes ${e26 ? '40' : '15'} g socket, ` +
-      `${e26 ? '50' : '25'} g bulb and 20 g cord). Tipping over the ${legged ? `${Math.round(p.base.legs)} leg tips (${fmt(p.base.legSpread, 0)} mm spread)` : `${fmt(p.base.size, 0)} mm base footprint`} ` +
+      `${e26 ? '50' : '25'} g bulb and 20 g cord${dowels.length ? `, ${fmt(dowelGrams, 0)} g of ${p.base.dowelMaterial} dowels` : ''}). Tipping over the ${legged ? `${layout.legs.length} leg tips (${fmt(p.base.legSpread, 0)} mm spread)` : `${fmt(p.base.size, 0)} mm base footprint`} ` +
       `${legged ? '' : `(inset ${fmt(p.base.bottomEdgeRadius)} mm for the bottom edge) `}starts at ${fmt(tipDeg)} ° of incline, worst ` +
       `toward ${fmt(worstDir, 0)}°. UL 153 §132 requires stability on an ${UL153_STABILITY_DEG} ° incline` +
       `${status === 'fail' ? ' — not met: widen or weigh the base (weight pocket), or shorten the lamp.' : status === 'warn' ? ' — met, but under 12° of margin is fragile on thick carpet.' : ' with margin.'}`,

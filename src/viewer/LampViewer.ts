@@ -34,6 +34,7 @@ import {
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { PartId } from '../geometry/build';
+import { DOWEL_MATERIALS } from '../model/hardware';
 import type { LampParams } from '../model/params';
 import type { LampView } from '../worker/messages';
 import { PART_COLORS, PART_ORDER } from './partColors';
@@ -125,6 +126,7 @@ export class LampViewer {
   private partMeshes = new Map<PartId, Mesh>();
   private hardware: Group | null = null;
   private ul: Group | null = null;
+  private dowels: Group | null = null;
   private shadeMaterials: MeshStandardMaterial[] = [];
   private options: ViewOptions = DEFAULT_VIEW_OPTIONS;
   private framed = false;
@@ -217,6 +219,7 @@ export class LampViewer {
     this.shadeMaterials = [];
     this.hardware = null;
     this.ul = null;
+    this.dowels = null;
     if (build && params) {
       this.content = new Group();
       this.buildParts(build);
@@ -326,6 +329,31 @@ export class LampViewer {
 
     this.hardware = group;
     this.content?.add(group);
+
+    // Bought dowels / rods: drawn with the base (they never explode with the cup hardware).
+    if (params.base.legKind === 'dowel' && L.legs.length > 0) {
+      const dowelMat = new MeshStandardMaterial({
+        color: DOWEL_MATERIALS[params.base.dowelMaterial].color,
+        roughness: params.base.dowelMaterial === 'wood' ? 0.8 : 0.35,
+        metalness: params.base.dowelMaterial === 'wood' ? 0 : 0.7,
+        clippingPlanes: [],
+      });
+      const dowels = new Group();
+      const r = params.base.dowelDiameter / 2;
+      for (const { top, tip } of L.legs) {
+        const a = new Vector3(...tip);
+        const dir = new Vector3(...top).sub(a);
+        // the square-cut top stops r·tanθ short of the socket floor (see structure.ts)
+        const len = dir.length() - r * Math.tan(dir.angleTo(new Vector3(0, 0, 1)));
+        const g = new CylinderGeometry(r, r, len, 24, 1);
+        const mesh = new Mesh(g, dowelMat);
+        mesh.quaternion.setFromUnitVectors(new Vector3(0, 1, 0), dir.clone().normalize());
+        mesh.position.copy(a.add(dir.normalize().multiplyScalar(len / 2)));
+        dowels.add(mesh);
+      }
+      this.dowels = dowels;
+      this.content?.add(dowels);
+    }
   }
 
   /** UL 153 centerline (line) and minimum-spacing envelope (translucent capsule) at the bulb axis. */
@@ -373,9 +401,9 @@ export class LampViewer {
       mat.needsUpdate = true;
     }
 
-    for (const group of [this.hardware, this.ul]) {
+    for (const group of [this.hardware, this.ul, this.dowels]) {
       if (!group) continue;
-      group.position.z = explodeOf('cup');
+      group.position.z = group === this.dowels ? explodeOf('base') : explodeOf('cup');
       group.traverse((child) => {
         if (child instanceof Mesh || child instanceof Line) {
           for (const m of Array.isArray(child.material) ? child.material : [child.material]) {
@@ -386,6 +414,7 @@ export class LampViewer {
       });
     }
     if (this.hardware) this.hardware.visible = o.showHardware;
+    if (this.dowels) this.dowels.visible = o.showHardware && o.visible.base;
     if (this.ul) this.ul.visible = o.showUl;
   }
 

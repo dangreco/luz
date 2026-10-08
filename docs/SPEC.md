@@ -15,7 +15,10 @@ Build a static, browser-only (Vite + React + TypeScript) parametric table-lamp g
    shade-ring dimensions are editable presets because vendors differ — the user measures their socket.
 2. **Parts** (each exported separately): base, stem, socket cup, shade, and an optional separate fitter
    (hub + spokes) for vase-mode shades. Shade mounting modes: integrated spider, separate fitter,
-   or seated in a base groove.
+   or seated in a base groove. Legged (tripod) bases either print their legs, or carry angled sockets
+   for bought wooden dowels / metal rods (measured diameter + diametral clearance, insertion depth,
+   sleeve wall); the tool reports the dowel cut length and mitre angle and adds the rod weight to the
+   stability check.
 3. **Shapes**: base, stem, cup and shade cross-sections can be circle, regular polygon (3+ sides, so
    triangle/square/hex…) with corner rounding, or superellipse; with aspect ratio and rotation. The shade's
    top and bottom sections can differ and are morphed along the height.

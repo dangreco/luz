@@ -164,8 +164,8 @@ function profileLoft(m: ManifoldToplevel, phis: Float64Array, o: ProfileLoft): M
   return loftSolid(m, rings);
 }
 
-/** Tapered round leg from `top` (at the base underside) to `tip` (on the table), with a domed foot. */
-function legSolid(m: ManifoldToplevel, top: Vec3, tip: Vec3, rTop: number, rTip: number, seg: number): Manifold {
+/** Tapered round rod from `top` down to `tip`; with `foot`, a domed sphere at the tip (printed leg on the table). */
+function legSolid(m: ManifoldToplevel, top: Vec3, tip: Vec3, rTop: number, rTip: number, seg: number, foot: boolean): Manifold {
   const dx = tip[0] - top[0];
   const dy = tip[1] - top[1];
   const dz = tip[2] - top[2];
@@ -177,8 +177,8 @@ function legSolid(m: ManifoldToplevel, top: Vec3, tip: Vec3, rTop: number, rTip:
   const tilt = Math.acos(clamp(uz, -1, 1)) / DEG;
   const yaw = Math.atan2(uy, ux) / DEG;
   const shaft = m.Manifold.cylinder(len, rTip, rTop, seg);
-  const foot = m.Manifold.sphere(rTip, seg);
-  return m.Manifold.union([shaft, foot]).rotate([0, tilt, 0]).rotate([0, 0, yaw]).translate(tip[0], tip[1], tip[2]);
+  const body = foot ? m.Manifold.union([shaft, m.Manifold.sphere(rTip, seg)]) : shaft;
+  return body.rotate([0, tilt, 0]).rotate([0, 0, yaw]).translate(tip[0], tip[1], tip[2]);
 }
 
 /** Vertical cutting cylinder from zBottom to zTop at (cx, cy). */
@@ -453,23 +453,62 @@ function buildBaseSolid(
       notes.push(`Cord route sized for the moulded plug (${r1(hw.plugWidth)} × ${r1(hw.plugThickness)} mm).`);
   }
 
-  // Legs are unioned after the cavity cut (below) so a hollow base keeps solid leg roots.
+  // Legs / dowel sleeves are unioned after the cavity cut (below) so a hollow base keeps solid roots.
   const legs: Manifold[] = [];
+  const legTools: Manifold[] = [];
   if (legged) {
-    const count = Math.round(b.legs);
-    const rTop = b.legDiameter / 2;
-    const rTip = b.legTipDiameter / 2;
-    const rootR = clamp(b.legRootRadius, 0, Math.max(0, minInradius(b.section, b.size, phis) - rTop));
-    for (let i = 0; i < count; i++) {
-      const a = (i / count) * TAU + TAU / (2 * count) + b.cordExitAngle * DEG;
-      // legs embed into the base (up to just under its top) so the union is solid
-      const top: Vec3 = [Math.cos(a) * rootR, Math.sin(a) * rootR, zb + Math.max(1, b.height - Math.max(1.5, b.shellWall))];
-      const tip: Vec3 = [Math.cos(a) * (b.legSpread / 2 - rTip), Math.sin(a) * (b.legSpread / 2 - rTip), rTip];
-      legs.push(legSolid(m, top, tip, rTop, rTip, Math.max(24, Math.min(seg, 48))));
+    const count = layout.legs.length;
+    const legSeg = Math.max(24, Math.min(seg, 48));
+    if (b.legKind === 'dowel') {
+      const rBore = (b.dowelDiameter + b.dowelClearance) / 2;
+      const rSleeve = rBore + Math.max(0.8, b.dowelSleeveWall);
+      const zTop = layout.legs[0].top[2];
+      let cutLength = 0;
+      let tilt = 0;
+      let insertion = 0;
+      for (const { top, tip } of layout.legs) {
+        const axisLen = Math.hypot(top[0] - tip[0], top[1] - tip[1], top[2] - tip[2]);
+        const cosT = (top[2] - tip[2]) / axisLen;
+        tilt = Math.acos(clamp(cosT, -1, 1));
+        // A square-cut dowel end stops where its highest rim point meets the flat socket floor at zTop,
+        // rD·tanθ along the axis below the top point.
+        const endInset = (b.dowelDiameter / 2) * Math.tan(tilt);
+        // the sleeve reaches the requested insertion depth, and its whole mouth (the rim tilted up by
+        // rSleeve·tanθ) clears the base underside by ≥ 2 mm
+        const exitLen = (top[2] - zb) / Math.max(1e-6, cosT) + rSleeve * Math.tan(tilt) + 2;
+        const sleeveLen = Math.max(b.dowelSocketDepth + endInset, exitLen);
+        insertion = sleeveLen - endInset;
+        cutLength = axisLen - endInset;
+        // point `len` mm down the axis from `top`
+        const at = (len: number): Vec3 => {
+          const f = len / axisLen;
+          return [top[0] + (tip[0] - top[0]) * f, top[1] + (tip[1] - top[1]) * f, top[2] + (tip[2] - top[2]) * f];
+        };
+        // overshoot above `top` so trimming at zTop leaves a flat socket floor
+        const over = rSleeve * Math.tan(tilt) + 1;
+        const sleeve = legSolid(m, at(-over), at(sleeveLen), rSleeve, rSleeve, legSeg, false);
+        const boreTool = legSolid(m, at(-over), at(sleeveLen + 20), rBore, rBore, legSeg, false);
+        legs.push(sleeve.trimByPlane([0, 0, -1], -zTop));
+        legTools.push(boreTool.trimByPlane([0, 0, -1], -zTop));
+        sleeve.delete();
+        boreTool.delete();
+      }
+      const centreR = Math.max(hole ? hole.diameter / 2 : 0, cordBoreDiameter(hw) / 2);
+      const rootR = Math.hypot(layout.legs[0].top[0], layout.legs[0].top[1]);
+      if (rootR - rBore / Math.cos(tilt) < centreR + 1.2)
+        notes.push('Dowel sockets break into the centre bore — increase the leg root radius or use thinner dowels.');
+      notes.push(
+        `${count} dowel sockets Ø${r1(2 * rBore)} mm (Ø${r1(b.dowelDiameter)} ${b.dowelMaterial} dowel + ${r1(b.dowelClearance)} mm clearance), ` +
+          `${r1(insertion)} mm insertion, ${r1(b.dowelSleeveWall)} mm sleeve wall, ${r1(tilt / DEG)}° from vertical. ` +
+          `Cut ${count} dowels ${r1(cutLength)} mm long on the centreline: top square, foot mitred ${r1(tilt / DEG)}° so it sits flat. ` +
+          'Prints upside down (base top on the bed); the cord drops from the base centre between the legs.',
+      );
+    } else {
+      for (const { top, tip } of layout.legs) legs.push(legSolid(m, top, tip, b.legDiameter / 2, b.legTipDiameter / 2, legSeg, true));
+      notes.push(
+        `${count} legs, ${r1(b.legDiameter)}→${r1(b.legTipDiameter)} mm, ${r1(b.legSpread)} mm spread. Prints upside down (base top on the bed); the cord drops from the base centre between the legs.`,
+      );
     }
-    notes.push(
-      `${count} legs, ${r1(b.legDiameter)}→${r1(b.legTipDiameter)} mm, ${r1(b.legSpread)} mm spread. Prints upside down (base top on the bed); the cord drops from the base centre between the legs.`,
-    );
   }
 
   if (p.shade.mount === 'base' || p.shade.mount === 'lip') {
@@ -521,10 +560,14 @@ function buildBaseSolid(
   }
   if (legs.length) {
     solid = m.Manifold.union([solid, ...legs]);
-    // keep the cord path through the base clear of the leg roots
-    const cord = bore(m, cordBoreDiameter(hw), zb - THROUGH, layout.baseTop + THROUGH, layout.axisX, layout.axisY, seg);
-    solid = solid.subtract(cord);
-    cord.delete();
+    // dowel bores, and the cord path + joint hole through the base kept clear of the leg roots
+    legTools.push(bore(m, cordBoreDiameter(hw), zb - THROUGH, layout.baseTop + THROUGH, layout.axisX, layout.axisY, seg));
+    if (hole)
+      legTools.push(bore(m, hole.diameter, layout.baseTop - hole.depth, layout.baseTop + 0.05, layout.axisX, layout.axisY, seg));
+    for (const t of legTools) {
+      solid = solid.subtract(t);
+      t.delete();
+    }
   }
   return solid;
 }

@@ -21,6 +21,7 @@ const BAD_NOTES = [
   'may not reach',
   'reaches past',
   'breaks through',
+  'break into',
   'skipped',
   'will not pass',
   'Cavity clamped',

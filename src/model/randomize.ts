@@ -211,6 +211,13 @@ export function generateDesign(current: LampParams, seed: number): LampParams {
       b.legDiameter = round(range(r, 12, 18), 0.5);
       b.legTipDiameter = round(b.legDiameter * range(r, 0.6, 0.9), 0.5);
       b.legRootRadius = round(b.size * 0.2);
+      // dowel stock is something the user owns, like the socket: keep their leg type and dowel specs
+      b.legKind = current.base.legKind;
+      b.dowelDiameter = current.base.dowelDiameter;
+      b.dowelClearance = current.base.dowelClearance;
+      b.dowelSocketDepth = current.base.dowelSocketDepth;
+      b.dowelSleeveWall = current.base.dowelSleeveWall;
+      b.dowelMaterial = current.base.dowelMaterial;
       b.cordExitAngle = 90;
     }
   }

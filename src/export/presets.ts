@@ -12,6 +12,8 @@ const ENUMS: Record<string, readonly string[]> = {
   'bulb.tech': ['led', 'ledFilament', 'cfl', 'incandescent', 'halogen'],
   'base.section.kind': ['circle', 'polygon', 'superellipse'],
   'base.edgeStyle': ['fillet', 'chamfer'],
+  'base.legKind': ['printed', 'dowel'],
+  'base.dowelMaterial': ['wood', 'aluminum', 'steel'],
   'stem.section.kind': ['circle', 'polygon', 'superellipse'],
   'stem.baseJoint.kind': ['fused', 'spigot'],
   'stem.cupJoint.kind': ['fused', 'spigot'],
