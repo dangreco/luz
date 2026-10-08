@@ -13,6 +13,8 @@ export function App() {
   const [busy, setBusy] = useState(true);
   const [buildError, setBuildError] = useState<string | null>(null);
   const client = useRef<GeometryClient | null>(null);
+  const [randomizing, setRandomizing] = useState(false);
+  const [randomNote, setRandomNote] = useState<string | null>(null);
 
   useEffect(() => {
     const c = new GeometryClient({
@@ -49,6 +51,23 @@ export function App() {
   }, [undo, redo]);
 
   const reset = () => replace(structuredClone(DEFAULT_PARAMS));
+  const randomize = () => {
+    const c = client.current;
+    if (!c || randomizing) return;
+    setRandomizing(true);
+    setRandomNote(null);
+    c.randomize(params, Math.floor(Math.random() * 2 ** 32))
+      .then((r) => {
+        replace(r.params);
+        setRandomNote(
+          `Found in ${r.tries} ${r.tries === 1 ? 'try' : 'tries'}${r.warnings.length ? ` — warnings: ${r.warnings.join(', ')}` : ', no warnings'}.`,
+        );
+      })
+      .catch((err: Error) => {
+        if (!err.message.startsWith('Superseded')) setRandomNote(err.message);
+      })
+      .finally(() => setRandomizing(false));
+  };
   const issues = result?.build.layout.issues ?? [];
 
   return (
@@ -65,6 +84,14 @@ export function App() {
           <button type="button" onClick={redo} disabled={!canRedo} title="Redo (Ctrl+Shift+Z)">
             ↷ Redo
           </button>
+          <button
+            type="button"
+            onClick={randomize}
+            disabled={randomizing}
+            title="Random form for your socket, bulb and materials — every candidate is built and must pass all safety checks (warnings allowed)"
+          >
+            {randomizing ? 'Randomizing…' : 'Randomize'}
+          </button>
           <button type="button" onClick={reset} title="Reset all parameters to the defaults">
             Reset to defaults
           </button>
@@ -72,6 +99,7 @@ export function App() {
         </div>
       </header>
       {loadError && <div className="banner error">{loadError}</div>}
+      {randomNote && <div className="banner info">{randomNote}</div>}
       <main className="app-main">
         <aside className="left-panel">
           <ParamPanel p={params} edit={edit} onReplace={replace} onReset={reset} />

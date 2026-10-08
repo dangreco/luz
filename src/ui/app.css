@@ -125,6 +125,11 @@ summary:focus-visible {
   padding: 6px 14px;
 }
 
+.banner.info {
+  background: #1f2a3a;
+  color: #b3cdf2;
+}
+
 .banner.error {
   background: #3a1f1f;
   color: #f2b8b3;

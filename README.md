@@ -5,6 +5,11 @@ cUL/CSA-listed E26 or E12 cord set. Every dimension, shape and surface treatment
 parameter; the design is checked live against UL 153 / CSA C22.2 No. 12 lamp-to-shade
 rules, and every printed part exports as STL (zip) or a single 3MF.
 
+**Randomize** (header) generates a new form — base, stem, cup, shade, legs, surface — for the
+socket, bulb and materials you have set. Each candidate is built in a worker and must pass every
+safety check (warnings allowed, failures never); the shade is enlarged and the support widened as
+needed until it does.
+
 Stack: Vite + React + TypeScript, [manifold-3d](https://github.com/elalish/manifold)
 (WASM) for solid modelling in a Web Worker, three.js for the preview. No backend.
 

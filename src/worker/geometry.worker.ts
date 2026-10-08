@@ -1,6 +1,7 @@
 import { buildLamp } from '../geometry/build';
 import { loadManifold } from '../geometry/wasm';
 import { runChecks } from '../safety/checks';
+import { searchDesign } from '../safety/randomize';
 import type { LampView, WorkerRequest, WorkerResponse } from './messages';
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
@@ -10,9 +11,14 @@ function respond(msg: WorkerResponse, transfer: Transferable[] = []): void {
 }
 
 ctx.onmessage = async (e: MessageEvent<WorkerRequest>) => {
-  const { id, params } = e.data;
+  const req = e.data;
+  const { id, params } = req;
   try {
     const manifold = await loadManifold();
+    if (req.kind === 'randomize') {
+      respond({ id, random: searchDesign(manifold, params, req.seed) });
+      return;
+    }
     const full = buildLamp(manifold, params);
     const checks = runChecks(params, full);
     const { shade: _shade, ...layout } = full.layout;

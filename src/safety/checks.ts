@@ -76,8 +76,11 @@ function bulbCentroid(layout: Layout): { x: number; y: number; z: number } {
   return { x: layout.axisX, y: layout.axisY, z: w > 0 ? wz / w : layout.contactZ };
 }
 
-export function runChecks(p: LampParams, build: LampBuild): SafetyCheck[] {
-  const layout = build.layout;
+/**
+ * Checks that need only the parameters and the resolved layout (no meshes): socket/bulb, UL 153
+ * designation and spacing, thermal screening, and stack problems. Cheap enough to screen many candidates.
+ */
+export function layoutChecks(p: LampParams, layout: Layout): SafetyCheck[] {
   const out: SafetyCheck[] = [socketBulbCheck(p)];
   const d = designate(p, layout);
   out.push(designationCheck(p, d));
@@ -85,8 +88,6 @@ export function runChecks(p: LampParams, build: LampBuild): SafetyCheck[] {
   out.push(clearanceInfo(layout));
   out.push(thermalShadeCheck(p, layout, d));
   out.push(thermalSocketCheck(p));
-  out.push(stabilityCheck(p, build));
-  out.push(...printChecks(p, build));
   layout.issues.forEach((msg, i) =>
     out.push({
       id: `layout-${i + 1}`,
@@ -96,6 +97,13 @@ export function runChecks(p: LampParams, build: LampBuild): SafetyCheck[] {
       source: 'Vertical stack rules (computeLayout)',
     }),
   );
+  return out;
+}
+
+export function runChecks(p: LampParams, build: LampBuild): SafetyCheck[] {
+  const out = layoutChecks(p, build.layout);
+  out.push(stabilityCheck(p, build));
+  out.push(...printChecks(p, build));
   out.push({
     id: 'disclaimer',
     title: 'Not a certification',
