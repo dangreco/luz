@@ -42,7 +42,7 @@ export function shadeSurface(s: ShadeParams, bottomSize: number, topSize: number
     if (rt > 0 && H - z < rt) d = Math.max(d, rt - Math.sqrt(Math.max(0, rt * rt - (rt - (H - z)) * (rt - (H - z)))));
     return d;
   };
-  // Ripples: soft horizontal bulges whose height wanders around the circumference (Malla).
+  // Ripples: soft horizontal bulges whose height wanders around the circumference.
   const rc = Math.max(0, Math.round(s.rippleCount));
   const ripple =
     rc > 0 && s.rippleDepth > 0

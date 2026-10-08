@@ -7,8 +7,8 @@ const TAU = Math.PI * 2;
  * axis) and height fraction `v` ∈ [0,1] over the textured band. Zero for pattern 'none'. Shared by the
  * shade, base and cup so a texture looks identical on every part.
  *
- * knit:    brick-staggered rounded bumps (each row offset half a cell) — Tela's knitted look.
- * knurl:   diamond knurl from two crossing helices — Malla's mesh.
+ * knit:    brick-staggered rounded bumps (each row offset half a cell) — a knitted look.
+ * knurl:   diamond knurl from two crossing helices — a mesh look.
  * ribs:    vertical rounded ribs; with `twist` they become rope.
  * checker: over/under pillows — coarse basket weave or, small and shallow, linen.
  */

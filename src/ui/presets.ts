@@ -140,8 +140,8 @@ function pedestal(p: LampParams, baseSize: number, baseHeight: number, shadeHeig
   p.shade.wallThickness = 1.6;
 }
 
-/** Tela (Printables 745457): Ø120 × 280 mm knit cylinder — textured base, rounded-top knit shade. */
-const tela = derive('Tela', (p) => {
+/** Knit cylinder: Ø120 × 280 mm — textured hollow base, rounded-top knit shade sleeved over a lip. */
+const knitCylinder = derive('Knit cylinder', (p) => {
   pedestal(p, 120, 70, 210);
   p.base.texture = { pattern: 'checker', columns: 90, rows: 26, depth: 0.5, twist: 0 };
   p.shade.topRounding = 16; // rounded shoulder that still leaves a ≥ 45 cm² top opening (open top)
@@ -149,8 +149,8 @@ const tela = derive('Tela', (p) => {
   p.shade.texture = { pattern: 'knit', columns: 72, rows: 84, depth: 1.1, twist: 0 };
 });
 
-/** Malla mini: Ø120, base 90 mm, 200 mm knurled-mesh shade with soft wandering ripples. */
-const mallaMini = derive('Malla mini', (p) => {
+/** Rippled mesh: Ø120, base 90 mm, 200 mm knurled-mesh shade with soft wandering ripples. */
+const rippledMesh = derive('Rippled mesh', (p) => {
   pedestal(p, 120, 90, 200);
   p.base.bottomEdgeRadius = 8;
   p.base.texture = { pattern: 'ribs', columns: 160, rows: 1, depth: 0.35, twist: 0 };
@@ -162,10 +162,10 @@ const mallaMini = derive('Malla mini', (p) => {
 });
 
 /**
- * Linen box: tall square linen-textured shade on a small, low square ceramic-style block. The shade
- * hangs from a hidden spider so its bottom edge drops below the cup, close to the block, as in the photo.
+ * Square linen: tall square linen-textured shade on a small, low square block. The shade
+ * hangs from a hidden spider so its bottom edge drops below the cup, close to the block.
  */
-const linenBox = derive('Linen box', (p) => {
+const squareLinen = derive('Square linen', (p) => {
   const square = polygon(4, 0.04); // vertices on ±X/±Y → spokes at 0/90/180/270° run into the corners
   p.base.section = { ...square, rotation: 45 };
   p.base.size = 125; // across corners
@@ -202,11 +202,11 @@ const linenBox = derive('Linen box', (p) => {
 });
 
 /**
- * Tripod capsule: frosted capsule shade sitting on a twisted-rope collar, on three splayed legs.
+ * Tripod dome: capsule shade sitting on a twisted-rope collar, on three splayed legs.
  * The shade sleeves over a lip on the collar; its top is a rounded dome left open at the crown
  * (Ø ≈ 80 mm) so heat escapes — a sealed capsule would trap it (closed/closed is ≤ 7 W only).
  */
-const tripodCapsule = derive('Tripod capsule', (p) => {
+const tripodDome = derive('Tripod dome', (p) => {
   p.base.size = 140;
   p.base.height = 30;
   p.base.topScale = 1;
@@ -243,10 +243,10 @@ const tripodCapsule = derive('Tripod capsule', (p) => {
 });
 
 export const PRESETS: Preset[] = [
-  { id: 'tela', name: 'Tela', description: 'Ø120 × 280 mm knit cylinder: textured base, rounded-top knit shade sleeved over a lip.', params: tela },
-  { id: 'malla-mini', name: 'Malla mini', description: 'Ø120 mm, 90 mm base, 200 mm knurled-mesh shade with wandering ripples.', params: mallaMini },
-  { id: 'linen-box', name: 'Linen box', description: 'Tall square linen-textured shade on a small, low square block.', params: linenBox },
-  { id: 'tripod-capsule', name: 'Tripod capsule', description: 'Frosted capsule shade in a twisted collar on three splayed legs.', params: tripodCapsule },
+  { id: 'knit-cylinder', name: 'Knit cylinder', description: 'Ø120 × 280 mm knit cylinder: textured base, rounded-top knit shade sleeved over a lip.', params: knitCylinder },
+  { id: 'rippled-mesh', name: 'Rippled mesh', description: 'Ø120 mm, 90 mm base, 200 mm knurled-mesh shade with wandering ripples.', params: rippledMesh },
+  { id: 'square-linen', name: 'Square linen', description: 'Tall square linen-textured shade on a small, low square block.', params: squareLinen },
+  { id: 'tripod-dome', name: 'Tripod dome', description: 'Capsule shade with a rounded dome top in a twisted collar on three splayed legs.', params: tripodDome },
   {
     id: 'classic',
     name: 'Classic ribbed',

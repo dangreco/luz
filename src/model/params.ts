@@ -82,7 +82,7 @@ export type EdgeStyle = 'fillet' | 'chamfer';
 
 /**
  * Outward surface relief shared by the shade, base and cup (see model/texture.ts).
- * knit: brick-staggered rounded bumps (Tela); knurl: diamond knurl from two crossing helices (Malla);
+ * knit: brick-staggered rounded bumps; knurl: diamond knurl from two crossing helices (mesh look);
  * ribs: vertical ribs, twisted into rope with `twist`; checker: over/under woven pillows (fine = linen).
  */
 export type TexturePattern = 'none' | 'knit' | 'knurl' | 'ribs' | 'checker';
@@ -187,7 +187,7 @@ export interface CupParams {
  * spider: hub + spokes inside the shade, clamped on the socket cup (hidden harp style).
  * fitter: same, as a separate part seated in a groove at the shade bottom.
  * base: shade bottom drops into a groove in a wider base top.
- * lip: shade sleeves over a raised lip on the base top — flush outer surfaces (Tela / Malla).
+ * lip: shade sleeves over a raised lip on the base top — flush outer surfaces (pedestal lamps).
  */
 export type ShadeMount = 'spider' | 'fitter' | 'base' | 'lip';
 export type ShadeSizing = 'absolute' | 'clearance';
@@ -282,7 +282,7 @@ export interface ShadeParams {
   /** rounded shoulders: fillet radius at the bottom / top rim of the nominal profile, mm */
   bottomRounding: number;
   topRounding: number;
-  /** horizontal ripples (Malla): count over the height, outward depth, and vertical wobble amplitude */
+  /** horizontal ripples: count over the height, outward depth, and vertical wobble amplitude */
   rippleCount: number;
   rippleDepth: number;
   rippleWobble: number;
@@ -334,7 +334,7 @@ const circle: SectionParams = { kind: 'circle', sides: 6, cornerRadius: 0.2, exp
 
 export const DEFAULT_PARAMS: LampParams = {
   version: 1,
-  name: 'Tela-style',
+  name: 'Classic ribbed',
   hardware: {
     socketBase: 'E26',
     socketMount: 'ring',
