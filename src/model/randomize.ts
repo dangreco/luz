@@ -61,13 +61,20 @@ function unitInradius(s: SectionParams): number {
 function fitCup(p: LampParams, section: SectionParams): void {
   const hw = p.hardware;
   const cu = p.cup;
-  const ring = hw.socketMount === 'ring';
-  const cavity = ring ? hw.socket.bodyDiameter + cu.clearance : hw.nutAcrossFlats / Math.cos(Math.PI / 6) + 4;
+  const hanging = hw.socketMount !== 'nipple'; // ring and snap-in bodies hang inside the cup
+  const cavity =
+    hw.socketMount === 'snap'
+      ? Math.max(hw.socket.bodyDiameter, hw.socket.clipReach) + cu.clearance
+      : hw.socketMount === 'ring'
+        ? hw.socket.bodyDiameter + cu.clearance
+        : hw.nutAcrossFlats / Math.cos(Math.PI / 6) + 4;
   cu.section = section;
   cu.topScale = 1;
   cu.cavityDiameter = 0;
   cu.size = Math.ceil((cavity + 2 * 3) / (2 * unitInradius(section)));
-  cu.height = ring ? Math.ceil(hw.socket.bodyLength + 4) : 36;
+  cu.height = hanging ? Math.ceil(hw.socket.bodyLength + 4) : 36;
+  // snap-in clips only grip a thin panel: plate alone (or plate + hub, see the hub mounts) sits mid-range
+  if (hw.socketMount === 'snap') cu.plateThickness = round((hw.socket.gripMin + hw.socket.gripMax) / 2, 0.1);
 }
 
 function randomTexture(r: Rng, heightMm: number, circumferenceMm: number): LampParams['shade']['texture'] {
@@ -164,8 +171,18 @@ export function generateDesign(current: LampParams, seed: number): LampParams {
     s.mountHeight = round(range(r, 0, 40) * k);
     s.spokeCount = int(r, 3, 4);
     s.spokeRise = round(range(r, 20, 40));
-    const hubHole = (p.hardware.socketMount === 'ring' ? p.hardware.socket.skirtDiameter : p.hardware.nippleDiameter) + p.cup.clearance;
+    const hubHole =
+      (p.hardware.socketMount === 'ring'
+        ? p.hardware.socket.skirtDiameter
+        : p.hardware.socketMount === 'snap'
+          ? p.hardware.socket.snapHoleDiameter
+          : p.hardware.nippleDiameter) + p.cup.clearance;
     s.hubOuterDiameter = Math.ceil(hubHole + 18);
+    if (p.hardware.socketMount === 'snap') {
+      const sock = p.hardware.socket;
+      p.cup.plateThickness = round(Math.max(1, sock.gripMin), 0.1);
+      s.hubThickness = round(Math.max(0.6, (sock.gripMin + sock.gripMax) / 2 - p.cup.plateThickness + 0.4), 0.1);
+    }
     b.size = round(s.bottomSize * range(r, 0.6, 0.8));
     b.height = round(range(r, 18, 36) * k);
     b.topScale = round(range(r, 0.8, 1), 0.01);

@@ -1,8 +1,18 @@
-import type { BulbTech, DowelMaterial, MaterialId, SocketBase, SocketSpec } from './params';
+import type { BulbTech, DowelMaterial, MaterialId, SocketBase, SocketMount, SocketSpec } from './params';
 
 const IN = 25.4;
 
-/** Socket presets (editable after selection). Sources: Grand Brass SOE26TP81W / SO10038, Nostalgicbulbs BD30-40. */
+/**
+ * Snap-in fields shared by both socket families (the keyless presets carry them so a spec always has every field).
+ * Sources: B&P 48107i E26 porcelain U-clip snap-in (1-17/32 in hole, 1-3/4 in face), Paxton 2440 E12 spring-clip
+ * socket (1 in hole), Etlin-Daniels IS212 (clips grip 0.032–0.093 in panels).
+ */
+const SNAP_FIT: Record<SocketBase, Pick<SocketSpec, 'snapHoleDiameter' | 'flangeDiameter' | 'clipReach' | 'gripMin' | 'gripMax'>> = {
+  E26: { snapHoleDiameter: 38.9, flangeDiameter: 44.5, clipReach: 43, gripMin: 0.8, gripMax: 2.4 },
+  E12: { snapHoleDiameter: 25.4, flangeDiameter: 28.6, clipReach: 28, gripMin: 0.8, gripMax: 2.4 },
+};
+
+/** Keyless socket presets (nipple / ring mounts). Sources: Grand Brass SOE26TP81W / SO10038, Nostalgicbulbs BD30-40. */
 export const SOCKET_PRESETS: Record<SocketBase, SocketSpec> = {
   E26: {
     bodyDiameter: 39.7,
@@ -13,6 +23,7 @@ export const SOCKET_PRESETS: Record<SocketBase, SocketSpec> = {
     ringThickness: 6,
     contactDepth: 24,
     ratedWatts: 75,
+    ...SNAP_FIT.E26,
   },
   E12: {
     bodyDiameter: 19.1,
@@ -23,8 +34,23 @@ export const SOCKET_PRESETS: Record<SocketBase, SocketSpec> = {
     ringThickness: 4,
     contactDepth: 16,
     ratedWatts: 75,
+    ...SNAP_FIT.E12,
   },
 };
+
+/**
+ * Snap-in sockets: porcelain (E26, 660 W / 250 V) or phenolic (E12, 75 W / 125 V) body behind a front face; two
+ * spring-steel wings on the sides snap under the panel. Body = the part behind the panel (top rim = panel top).
+ */
+export const SNAP_SOCKET_PRESETS: Record<SocketBase, SocketSpec> = {
+  E26: { ...SOCKET_PRESETS.E26, bodyDiameter: 36.5, bodyLength: 42.7, contactDepth: 25, ratedWatts: 660 },
+  E12: { ...SOCKET_PRESETS.E12, bodyDiameter: 22, bodyLength: 32, contactDepth: 17, ratedWatts: 75 },
+};
+
+/** Preset socket dimensions for a base and mount style (snap-in sockets are a different body). */
+export function socketPreset(base: SocketBase, mount: SocketMount): SocketSpec {
+  return { ...(mount === 'snap' ? SNAP_SOCKET_PRESETS : SOCKET_PRESETS)[base] };
+}
 
 export type BulbFamily = 'A' | 'G' | 'B' | 'ST' | 'BR' | 'PAR' | 'CA';
 

@@ -1,4 +1,4 @@
-import { BULB_SHAPES, BULB_TECH, DOWEL_MATERIALS, MATERIALS, SOCKET_PRESETS } from '../model/hardware';
+import { BULB_SHAPES, BULB_TECH, DOWEL_MATERIALS, MATERIALS, socketPreset } from '../model/hardware';
 import type { BulbTech, DowelMaterial, EdgeStyle, LampParams, LegKind, MaterialId, SocketBase, SocketMount } from '../model/params';
 import { Collapsible, Note, SubHeading, type Option } from './controls';
 import { makeFields } from './fields';
@@ -15,6 +15,7 @@ const BASES: Array<Option<SocketBase>> = [
 const MOUNTS: Array<Option<SocketMount>> = [
   { value: 'ring', label: 'Threaded skirt + shade ring' },
   { value: 'nipple', label: '1/8 IPS nipple + nut' },
+  { value: 'snap', label: 'Snap-in porcelain (spring-clip wings)' },
 ];
 const TECHS: Array<Option<BulbTech>> = (Object.keys(BULB_TECH) as BulbTech[]).map((value) => ({
   value,
@@ -82,7 +83,7 @@ export function ParamPanel({ p, edit, onReplace, onReset }: ParamPanelProps) {
               if (!base) return;
               edit((d) => {
                 d.hardware.socketBase = base.value;
-                d.hardware.socket = { ...SOCKET_PRESETS[base.value] };
+                d.hardware.socket = socketPreset(base.value, d.hardware.socketMount);
                 if (!BULB_SHAPES.some((b) => b.id === d.bulb.shape && b.base === base.value)) {
                   const match = BULB_SHAPES.find((b) => b.base === base.value);
                   if (match) d.bulb.shape = match.id;
@@ -97,25 +98,60 @@ export function ParamPanel({ p, edit, onReplace, onReset }: ParamPanelProps) {
             ))}
           </select>
         </div>
-        {f.sel('Socket mount', (d) => d.hardware, 'socketMount', MOUNTS)}
+        <div className="field select">
+          <label htmlFor="socket-mount">Socket mount</label>
+          <select
+            id="socket-mount"
+            value={hw.socketMount}
+            onChange={(e) => {
+              const mount = MOUNTS.find((m) => m.value === e.target.value);
+              if (!mount) return;
+              edit((d) => {
+                // snap-in sockets are a different body: swap in their preset when crossing that boundary
+                if ((mount.value === 'snap') !== (d.hardware.socketMount === 'snap'))
+                  d.hardware.socket = socketPreset(d.hardware.socketBase, mount.value);
+                d.hardware.socketMount = mount.value;
+              });
+            }}
+          >
+            {MOUNTS.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+        </div>
         <button
           type="button"
           onClick={() =>
             edit((d) => {
-              d.hardware.socket = { ...SOCKET_PRESETS[d.hardware.socketBase] };
+              d.hardware.socket = socketPreset(d.hardware.socketBase, d.hardware.socketMount);
             })
           }
         >
-          Reset socket dimensions to {hw.socketBase} preset
+          Reset socket dimensions to {hw.socketBase} {hw.socketMount === 'snap' ? 'snap-in ' : ''}preset
         </button>
         <SubHeading>Socket dimensions</SubHeading>
         {f.num('Body diameter', (d) => d.hardware.socket, 'bodyDiameter', 8, 80, 0.1, 'mm')}
-        {f.num('Body length', (d) => d.hardware.socket, 'bodyLength', 15, 120, 0.1, 'mm')}
-        {f.num('Skirt diameter', (d) => d.hardware.socket, 'skirtDiameter', 8, 80, 0.1, 'mm')}
-        {f.num('Skirt length', (d) => d.hardware.socket, 'skirtLength', 2, 60, 0.1, 'mm')}
-        {f.num('Shade ring diameter', (d) => d.hardware.socket, 'ringDiameter', 15, 100, 0.1, 'mm')}
-        {f.num('Shade ring thickness', (d) => d.hardware.socket, 'ringThickness', 1, 20, 0.1, 'mm')}
-        {f.num('Contact depth', (d) => d.hardware.socket, 'contactDepth', 2, 60, 0.1, 'mm', 'Socket top rim down to the bulb centre contact')}
+        {f.num('Body length', (d) => d.hardware.socket, 'bodyLength', 15, 120, 0.1, 'mm', hw.socketMount === 'snap' ? 'Behind the panel: face flange to the back of the body' : undefined)}
+        {hw.socketMount === 'ring' && (
+          <>
+            {f.num('Skirt diameter', (d) => d.hardware.socket, 'skirtDiameter', 8, 80, 0.1, 'mm')}
+            {f.num('Skirt length', (d) => d.hardware.socket, 'skirtLength', 2, 60, 0.1, 'mm')}
+            {f.num('Shade ring diameter', (d) => d.hardware.socket, 'ringDiameter', 15, 100, 0.1, 'mm')}
+            {f.num('Shade ring thickness', (d) => d.hardware.socket, 'ringThickness', 1, 20, 0.1, 'mm')}
+          </>
+        )}
+        {hw.socketMount === 'snap' && (
+          <>
+            {f.num('Mounting hole', (d) => d.hardware.socket, 'snapHoleDiameter', 10, 60, 0.1, 'mm', 'E26 porcelain: 1-17/32 in ≈ 38.9 mm; E12: 1 in = 25.4 mm')}
+            {f.num('Face flange diameter', (d) => d.hardware.socket, 'flangeDiameter', 12, 80, 0.1, 'mm', 'Front face that rests on the panel')}
+            {f.num('Clip wing reach', (d) => d.hardware.socket, 'clipReach', 10, 80, 0.1, 'mm', 'Across the relaxed spring wings, behind the panel')}
+            {f.num('Grip: min panel', (d) => d.hardware.socket, 'gripMin', 0.3, 6, 0.1, 'mm')}
+            {f.num('Grip: max panel', (d) => d.hardware.socket, 'gripMax', 0.5, 8, 0.1, 'mm', 'Typical 0.032–0.093 in (0.8–2.4 mm); the cup plate (+ hub) must fall inside')}
+          </>
+        )}
+        {f.num('Contact depth', (d) => d.hardware.socket, 'contactDepth', 2, 60, 0.1, 'mm', hw.socketMount === 'snap' ? 'Face flange (panel top) down to the bulb centre contact' : 'Socket top rim down to the bulb centre contact')}
         {f.num('Rated watts', (d) => d.hardware.socket, 'ratedWatts', 4, 660, 1, 'W')}
         <SubHeading>Nipple, nut & cord</SubHeading>
         {f.num('Nipple diameter', (d) => d.hardware, 'nippleDiameter', 5, 20, 0.01, 'mm', '1/8 IPS = 10.29 mm')}

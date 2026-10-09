@@ -3,6 +3,7 @@ import {
   BackSide,
   BufferAttribute,
   BufferGeometry,
+  BoxGeometry,
   CanvasTexture,
   CapsuleGeometry,
   Color,
@@ -292,8 +293,24 @@ export class LampViewer {
     const group = new Group();
     const grey = new MeshStandardMaterial({ color: 0x6b7078, roughness: 0.45, metalness: 0.6, clippingPlanes: [], side: DoubleSide });
 
-    group.add(new Mesh(zCylinder(sock.bodyDiameter / 2, L.socketBottom, L.socketTop - 1, L.axisX, L.axisY), grey));
-    if (params.hardware.socketMount === 'ring' && Number.isFinite(L.ringBottom)) {
+    const hw = params.hardware;
+    if (hw.socketMount === 'snap') {
+      // porcelain body behind the panel, face flange on top of it, two spring wings just under the panel
+      const porcelain = new MeshStandardMaterial({ color: 0xf2efe8, roughness: 0.35, metalness: 0, clippingPlanes: [], side: DoubleSide });
+      group.add(new Mesh(zCylinder(sock.bodyDiameter / 2, L.socketBottom, L.socketTop, L.axisX, L.axisY), porcelain));
+      group.add(new Mesh(zCylinder(sock.flangeDiameter / 2, L.socketTop, L.socketTop + 3, L.axisX, L.axisY), porcelain));
+      const grip = params.cup.plateThickness + L.hubThickness;
+      for (const side of [-1, 1]) {
+        const wingTop = L.socketTop - grip;
+        const wingLen = Math.min(18, sock.bodyLength * 0.5);
+        const wing = new Mesh(new BoxGeometry(Math.max(1, (sock.clipReach - sock.bodyDiameter) / 2), 8, wingLen), grey);
+        wing.position.set(L.axisX + side * (sock.bodyDiameter / 2 + Math.max(1, (sock.clipReach - sock.bodyDiameter) / 2) / 2), L.axisY, wingTop - wingLen / 2);
+        group.add(wing);
+      }
+    } else {
+      group.add(new Mesh(zCylinder(sock.bodyDiameter / 2, L.socketBottom, L.socketTop - 1, L.axisX, L.axisY), grey));
+    }
+    if (hw.socketMount === 'ring' && Number.isFinite(L.ringBottom)) {
       const ringMat = new MeshStandardMaterial({ color: 0x8b9099, roughness: 0.4, metalness: 0.7, clippingPlanes: [], side: DoubleSide });
       group.add(
         new Mesh(
@@ -301,8 +318,8 @@ export class LampViewer {
           ringMat,
         ),
       );
-    } else {
-      group.add(new Mesh(zCylinder(params.hardware.nippleDiameter / 2, L.cupTop - params.cup.plateThickness, L.socketBottom + 1, L.axisX, L.axisY, 24), grey));
+    } else if (hw.socketMount === 'nipple') {
+      group.add(new Mesh(zCylinder(hw.nippleDiameter / 2, L.cupTop - params.cup.plateThickness, L.socketBottom + 1, L.axisX, L.axisY, 24), grey));
     }
 
     const profile = L.bulbProfile.map(([z, r]) => new Vector2(r, z));

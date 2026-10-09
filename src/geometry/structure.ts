@@ -270,6 +270,18 @@ function planCup(p: LampParams, layout: Layout, cordD: number, stemBoreD: number
       notes.push(
         `Plate hole opened to Ø${r1(plateHoleD)} mm so the socket drops in from above; the shade ring still clamps on the skirt.`,
       );
+  } else if (hw.socketMount === 'snap') {
+    // The body hangs below the plate and the wings spring out underneath it: the cavity clears both.
+    const need = Math.max(hw.socket.bodyDiameter, hw.socket.clipReach) + cu.clearance;
+    cavityD = cu.cavityDiameter > 0 ? cu.cavityDiameter : need;
+    if (cavityD < need - 1e-6)
+      notes.push(
+        `Cavity Ø${r1(cavityD)} mm is smaller than the socket body / clip wings + clearance (Ø${r1(need)} mm) — the socket may not fit.`,
+      );
+    const gap = Math.max(4, hw.cordThickness + 2);
+    zShelf = clamp(layout.socketBottom - gap, zBot + 3, plateBottom - 2);
+    coneEnd = Math.min(layout.socketBottom - 1, plateBottom);
+    plateHoleD = hw.socket.snapHoleDiameter + cu.clearance;
   } else {
     const nutAcrossCorners = hw.nutAcrossFlats / Math.cos(Math.PI / 6);
     const pocketH = hw.nutThickness + 1;
@@ -779,6 +791,12 @@ export function buildStructure(m: ManifoldToplevel, p: LampParams, layout: Layou
   if (hw.socketMount === 'ring') {
     cupNotes.push(
       `Socket drops in from above; Ø${r1(hw.socket.ringDiameter)} mm shade ring clamps it on the plate.`,
+    );
+  } else if (hw.socketMount === 'snap') {
+    const grip = layout.cupTop - cupPlan.plateBottom + layout.hubThickness;
+    cupNotes.push(
+      `Snap-in socket: Ø${r1(cupPlan.plateHoleD)} mm hole; the clip wings grip ${r1(grip)} mm of plate${layout.hubThickness > 0 ? ' + hub' : ''} ` +
+        `(rated ${r1(hw.socket.gripMin)}–${r1(hw.socket.gripMax)} mm). Wire the socket leads to the cord first (splice connectors), then push the socket in from above until both wings click.`,
     );
   } else {
     const plateT = layout.cupTop - cupPlan.plateBottom;

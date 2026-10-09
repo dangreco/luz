@@ -22,7 +22,9 @@ export interface SectionParams {
 }
 
 export type SocketBase = 'E26' | 'E12';
-export type SocketMount = 'nipple' | 'ring';
+/** nipple: keyless socket on a 1/8 IPS nipple; ring: threaded skirt + shade ring; snap: snap-in porcelain socket held by
+ *  two spring-clip wings in a round panel hole. */
+export type SocketMount = 'nipple' | 'ring' | 'snap';
 export type BulbTech = 'led' | 'ledFilament' | 'cfl' | 'incandescent' | 'halogen';
 export type MaterialId = 'PLA' | 'PETG' | 'ASA' | 'ABS' | 'PC';
 
@@ -43,12 +45,22 @@ export interface SocketSpec {
   contactDepth: number;
   /** socket wattage rating printed on the socket */
   ratedWatts: number;
+  /** snap-in: diameter of the panel hole the socket snaps into */
+  snapHoleDiameter: number;
+  /** snap-in: front flange diameter (rests on the panel; must be larger than the hole) */
+  flangeDiameter: number;
+  /** snap-in: diameter across the relaxed spring-clip wings (they spread out under the panel) */
+  clipReach: number;
+  /** snap-in: panel thickness range the clips grip */
+  gripMin: number;
+  gripMax: number;
 }
 
 export interface HardwareParams {
   socketBase: SocketBase;
   /** nipple: keyless socket screwed onto a 1/8 IPS nipple through the cup top.
-   *  ring: socket hangs inside the cup, threaded skirt pokes through the cup's top plate, shade ring clamps. */
+   *  ring: socket hangs inside the cup, threaded skirt pokes through the cup's top plate, shade ring clamps.
+   *  snap: snap-in porcelain socket drops through a hole in the cup top; its spring-clip wings grip the plate. */
   socketMount: SocketMount;
   socket: SocketSpec;
   /** 1/8 IPS nipple OD = 10.29 */
@@ -361,6 +373,11 @@ export const DEFAULT_PARAMS: LampParams = {
       ringThickness: 6,
       contactDepth: 24,
       ratedWatts: 75,
+      snapHoleDiameter: 38.9,
+      flangeDiameter: 44.5,
+      clipReach: 43,
+      gripMin: 0.8,
+      gripMax: 2.4,
     },
     nippleDiameter: 10.29,
     nutAcrossFlats: 12.7,

@@ -7,7 +7,7 @@ const VERSION = DEFAULT_PARAMS.version;
 /** Closed string unions, validated during merge so a corrupt preset can't poison the geometry code. */
 const ENUMS: Record<string, readonly string[]> = {
   'hardware.socketBase': ['E26', 'E12'],
-  'hardware.socketMount': ['nipple', 'ring'],
+  'hardware.socketMount': ['nipple', 'ring', 'snap'],
   'bulb.shape': BULB_SHAPES.map((b) => b.id),
   'bulb.tech': ['led', 'ledFilament', 'cfl', 'incandescent', 'halogen'],
   'base.section.kind': ['circle', 'polygon', 'superellipse'],

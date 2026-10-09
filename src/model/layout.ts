@@ -14,6 +14,7 @@ import { shadeSurface, type ShadeSurface } from './shadeSurface';
  *   hub      z ∈ [cupTop, cupTop + hubThk]     spider/fitter only: shade hub clamped on the cup top
  *   socket   ring mode: body below the plate, threaded skirt up through plate (+hub), shade ring on top
  *            nipple mode: socket cap sits on the plate (or hub), body above
+ *            snap mode: face flange on the plate (or hub), body below; clip wings grip plate (+hub) from beneath
  *   contact  bulb centre contact; bulb grows upward along +Z from here
  *   shade    z ∈ [shadeBottom, shadeBottom + shade.height]
  */
@@ -171,6 +172,19 @@ export function computeLayout(p: LampParams): Layout {
       );
     if (socketBottom < stemTop + 2)
       issues.push('Socket body is longer than the cup cavity — increase cup height.');
+  } else if (hw.socketMount === 'snap') {
+    // Face flange rests on the hub (or plate); the clip wings grip the whole sandwich from underneath.
+    socketTop = cupTop + hubThickness;
+    socketBottom = socketTop - sock.bodyLength;
+    const grip = p.cup.plateThickness + hubThickness;
+    if (grip < sock.gripMin - 1e-6 || grip > sock.gripMax + 1e-6)
+      issues.push(
+        `Snap-in clips grip ${sock.gripMin}–${sock.gripMax} mm but the plate${hubThickness > 0 ? ' + hub' : ''} is ${grip.toFixed(1)} mm — set the cup plate thickness${hubThickness > 0 ? ' and hub thickness' : ''} into that range.`,
+      );
+    if (sock.flangeDiameter <= sock.snapHoleDiameter + p.cup.clearance)
+      issues.push('Snap-in socket flange is not wider than its mounting hole — it would fall through.');
+    if (socketBottom < stemTop + 2)
+      issues.push('Snap-in socket body is longer than the cup cavity — increase cup height.');
   } else {
     socketBottom = cupTop + hubThickness;
     socketTop = socketBottom + sock.bodyLength;
@@ -211,7 +225,8 @@ export function computeLayout(p: LampParams): Layout {
   const shadeTop = shadeBottom + sh.height;
 
   const hubHoleDiameter =
-    (hw.socketMount === 'ring' ? sock.skirtDiameter : hw.nippleDiameter) + p.cup.clearance;
+    (hw.socketMount === 'ring' ? sock.skirtDiameter : hw.socketMount === 'snap' ? sock.snapHoleDiameter : hw.nippleDiameter) +
+    p.cup.clearance;
   if (hasHub && sh.hubOuterDiameter <= hubHoleDiameter + 4)
     issues.push('Shade hub outer diameter is too small for the socket hole.');
   if (sh.mount === 'base' || sh.mount === 'lip') {
