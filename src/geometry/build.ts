@@ -6,7 +6,7 @@ import { buildStructure } from './structure';
 import { buildShadeParts } from './shade';
 import type { Manifold, ManifoldToplevel } from './wasm';
 
-export type PartId = 'base' | 'stem' | 'cup' | 'shade' | 'fitter';
+export type PartId = 'base' | 'stem' | 'cup' | 'shade' | 'fitter' | 'diffuser' | 'clamp';
 
 /** A solid as produced by a geometry module, in assembled world coordinates. */
 export interface SolidPart {
@@ -48,7 +48,12 @@ export function buildLamp(m: ManifoldToplevel, p: LampParams): LampBuild {
     const mesh = toArrays(s.solid);
     const { volume, centroid } = s.printedShell ? shellProps(mesh, s.printedShell) : massProps(mesh);
     const box = s.solid.boundingBox();
-    const material = s.id === 'shade' || s.id === 'fitter' ? p.materials.shade : p.materials.structure;
+    const material =
+      s.id === 'shade' || s.id === 'fitter'
+        ? p.materials.shade
+        : s.id === 'diffuser'
+          ? p.materials.diffuser
+          : p.materials.structure;
     s.solid.delete();
     return {
       id: s.id,

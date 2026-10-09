@@ -9,6 +9,8 @@ const ENUMS: Record<string, readonly string[]> = {
   'hardware.socketBase': ['E26', 'E12'],
   'hardware.socketMount': ['nipple', 'ring', 'snap'],
   'hardware.wago.model': ['221-412', '2273-202'],
+  'shade.diffuser.position': ['none', 'bottom', 'top'],
+  'materials.diffuser': ['PLA', 'PETG', 'ASA', 'ABS', 'PC'],
   'bulb.shape': BULB_SHAPES.map((b) => b.id),
   'bulb.tech': ['led', 'ledFilament', 'cfl', 'incandescent', 'halogen'],
   'base.section.kind': ['circle', 'polygon', 'superellipse'],

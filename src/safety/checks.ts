@@ -795,16 +795,29 @@ function printChecks(p: LampParams, build: LampBuild): SafetyCheck[] {
   });
 
   const legged = p.base.legs >= 3;
+  const route = legged
+    ? 'The cord drops from the base centre between the legs — nothing for it to pinch.'
+    : p.base.cordChannel
+      ? `${p.base.shellWall > 0 ? 'Hollow base with a rim notch' : 'Base underside has a cord channel'} exiting at ${fmt(p.base.cordExitAngle, 0)}°, so the lamp sits flat and the cord is not pinched.`
+      : `No cord channel on the base underside — the cord will lift or rock the base and can chafe where it exits. Enable base.cordChannel.`;
   checks.push({
     id: 'print-cord',
     title: 'Cord route',
     status: legged || p.base.cordChannel ? 'pass' : 'warn',
-    detail: legged
-      ? 'The cord drops from the base centre between the legs — nothing for it to pinch.'
-      : p.base.cordChannel
-        ? `${p.base.shellWall > 0 ? 'Hollow base with a rim notch' : 'Base underside has a cord channel'} exiting at ${fmt(p.base.cordExitAngle, 0)}°, so the lamp sits flat and the cord is not pinched.`
-        : `No cord channel on the base underside — the cord will lift or rock the base and can chafe where it exits. Enable base.cordChannel.`,
+    detail: route,
     source: 'Assembly practice',
+  });
+  const clamp = build.layout.clamp;
+  checks.push({
+    id: 'cord-strain',
+    title: 'Cord strain relief',
+    status: clamp ? 'pass' : 'info',
+    detail: clamp
+      ? `Screw-down clamp across the cord channel squeezes the cord by ${fmt(p.hardware.strainRelief.squeeze)} mm, so a pull on the cord is taken by the base, not the splices or socket terminals. ` +
+        'Also tie an Underwriters knot inside the socket. Test: a firm pull on the cord must not move it at the clamp.'
+      : 'No printed cord clamp. A pull on the cord must never reach the splices or the socket terminals: tie an Underwriters knot inside the socket ' +
+        '(and use a cord set with its own strain relief), or enable the screw-down clamp under a solid base.',
+    source: 'UL 153 / CSA C22.2 No. 12 require supply-cord strain relief; OSHA 29 CFR 1926.405(g)(2)(iv) (no tension on joints or terminal screws)',
   });
   return checks;
 }

@@ -139,7 +139,11 @@ export function generateDesign(current: LampParams, seed: number): LampParams {
   p.materials = structuredClone(current.materials);
   p.quality = structuredClone(current.quality);
 
-  const archetype = pick<Archetype>(r, ['stem', 'stem', 'fitter', 'pedestal', 'pedestal', 'tripod']);
+  // the cord clamp sits in the underside channel of a solid plinth: only the stem / fitter archetypes have one
+  const archetype = pick<Archetype>(
+    r,
+    p.hardware.strainRelief.enabled ? ['stem', 'fitter'] : ['stem', 'stem', 'fitter', 'pedestal', 'pedestal', 'tripod'],
+  );
   const family = randomSection(r);
   const b = p.base;
   const st = p.stem;
@@ -245,6 +249,12 @@ export function generateDesign(current: LampParams, seed: number): LampParams {
     b.shellWall = 0;
     b.weightPocketDiameter = 0;
     b.height = Math.max(b.height, Math.ceil(p.hardware.wago.depth + 2 * p.hardware.wago.clearance + 3));
+  }
+  if (p.hardware.strainRelief.enabled) {
+    b.cordChannel = true;
+    // the clamp sits near the edge on the exit line; keep the weight pocket inside it
+    b.weightPocketDiameter = Math.min(b.weightPocketDiameter, round(b.size * 0.4));
+    b.height = Math.max(b.height, Math.ceil(2.5 * p.hardware.strainRelief.screwDiameter + 12));
   }
 
   // the shade must at least reach past the bulb tip

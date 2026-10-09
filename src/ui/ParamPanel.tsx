@@ -170,6 +170,14 @@ export function ParamPanel({ p, edit, onReplace, onReset }: ParamPanelProps) {
             {f.num('Plug thickness', (d) => d.hardware, 'plugThickness', 8, 40, 0.5, 'mm')}
           </>
         )}
+        <SubHeading>Cord strain relief</SubHeading>
+        {f.tog('Screw-down cord clamp under the base', (d) => d.hardware.strainRelief, 'enabled', 'Printed bar in a recess across the cord channel (solid plinth with cord channel)')}
+        {hw.strainRelief.enabled && (
+          <>
+            {f.num('Screw size', (d) => d.hardware.strainRelief, 'screwDiameter', 2, 5, 0.5, 'mm', 'Self-tapping pan-head screws: M3 / #4 = 3')}
+            {f.num('Cord squeeze', (d) => d.hardware.strainRelief, 'squeeze', 0.2, 2, 0.1, 'mm', 'How far the ridges press into the cord jacket (≈ 20 % of the cord thickness)')}
+          </>
+        )}
         <SubHeading>Splice connectors</SubHeading>
         {f.tog('WAGO holders under the base', (d) => d.hardware.wago, 'enabled', 'Two pockets (one per conductor) beside the cord bore; solid base only')}
         {hw.wago.enabled && (

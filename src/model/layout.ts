@@ -88,6 +88,91 @@ function wagoSlots(p: LampParams, axisX: number, axisY: number): WagoSlot[] {
   }));
 }
 
+/**
+ * Screw-down cord clamp across the cord channel under a solid plinth: a printed bar sits flush in a recess in the
+ * base underside and presses the cord up against the channel roof; two self-tapping screws pull it in. Centred at
+ * (x, y) on the channel, `along` = unit XY exit direction.
+ */
+export interface StrainClamp {
+  x: number;
+  y: number;
+  along: [number, number];
+  /** bar length across the channel, width along it, thickness (= recess depth) */
+  barLen: number;
+  barWidth: number;
+  thickness: number;
+  /** screw centres at ±screwOffset across the channel */
+  screwOffset: number;
+  /** pilot hole depth above the recess floor */
+  pilotDepth: number;
+}
+
+/** Min screw engagement in the printed base (self-tapping into plastic: ≥ 2–2.5 × the screw diameter). */
+const SCREW_ENGAGE = 2.5;
+
+function strainClamp(p: LampParams, axisX: number, axisY: number, wagos: WagoSlot[], issues: string[]): StrainClamp | null {
+  const hw = p.hardware;
+  const sr = hw.strainRelief;
+  if (!sr.enabled) return null;
+  const b = p.base;
+  if (b.legs >= 3 || b.shellWall > 0 || !b.cordChannel) {
+    issues.push(
+      'The cord clamp sits in the underside cord channel of a solid plinth — enable the cord channel on a solid, leg-free base, or disable it and rely on an Underwriters knot at the socket.',
+    );
+    return null;
+  }
+  const ct = hw.prewiredCord ? hw.plugThickness : hw.cordThickness;
+  const channelW = (hw.prewiredCord ? hw.plugWidth : hw.cordWidth) + 2 * CORD_CLEAR;
+  const channelH = ct + 2 * CORD_CLEAR;
+  // bar top = channel roof − cord thickness + squeeze, bar bottom flush with the underside
+  const thickness = channelH - hw.cordThickness + sr.squeeze;
+  const d = Math.max(1.5, sr.screwDiameter);
+  const screwOffset = channelW / 2 + d / 2 + 2;
+  const barLen = 2 * screwOffset + d + 4;
+  const barWidth = Math.max(10, 2 * d + 4);
+  const pilotDepth = SCREW_ENGAGE * d + 1;
+  if (thickness < 1.6)
+    issues.push(`Cord clamp bar would be only ${thickness.toFixed(1)} mm thick — increase the squeeze.`);
+  if (thickness + pilotDepth > b.height - 1.5)
+    issues.push(
+      `Base is too low for the cord clamp screws (needs ≥ ${(thickness + pilotDepth + 1.5).toFixed(1)} mm) — raise the base or use smaller screws.`,
+    );
+  const exit = (b.cordExitAngle * Math.PI) / 180;
+  const along: [number, number] = [Math.cos(exit), Math.sin(exit)];
+  const across: [number, number] = [-along[1], along[0]];
+  // distance from the axis to the base edge along the exit, at the underside
+  let edge = Infinity;
+  for (let s = 0; s < 400; s += 0.5) {
+    const x = axisX + along[0] * s;
+    const y = axisY + along[1] * s;
+    const r = Math.hypot(x, y);
+    const phi = Math.atan2(y, x);
+    if (r > sectionRadius(b.section, phi) * b.size - b.bottomEdgeRadius) {
+      edge = s;
+      break;
+    }
+  }
+  const sClamp = edge - 6 - barWidth / 2;
+  // keep clear of the connector pockets and cord bore (on the axis) and the weight pocket (on the origin)
+  const wagoReach = wagos.length ? wagos[0].lenAlong / 2 + 2 : 0;
+  const cordR = cordBoreDiameter(hw) / 2 + 2;
+  const x = axisX + along[0] * sClamp;
+  const y = axisY + along[1] * sClamp;
+  let fits = sClamp - barWidth / 2 >= Math.max(wagoReach, cordR);
+  let nearest = Infinity;
+  for (const [i, j] of [[-1, -1], [-1, 1], [1, -1], [1, 1], [-1, 0], [1, 0]]) {
+    const cx = x + (along[0] * i * barWidth) / 2 + (across[0] * j * barLen) / 2;
+    const cy = y + (along[1] * i * barWidth) / 2 + (across[1] * j * barLen) / 2;
+    nearest = Math.min(nearest, Math.hypot(cx, cy));
+    if (Math.hypot(cx, cy) > sectionRadius(b.section, Math.atan2(cy, cx)) * b.size - b.bottomEdgeRadius - 1.5) fits = false;
+  }
+  if (!fits)
+    issues.push('Base is too small for the cord clamp between the cord bore and the edge — widen the base or disable the clamp.');
+  else if (b.weightPocketDiameter > 0 && nearest < b.weightPocketDiameter / 2 + 1.6)
+    issues.push('Cord clamp overlaps the weight pocket — shrink the weight pocket or disable the clamp.');
+  return { x, y, along, barLen, barWidth, thickness, screwOffset, pilotDepth };
+}
+
 export interface Layout {
   axisX: number;
   axisY: number;
@@ -124,6 +209,8 @@ export interface Layout {
   legs: LegAxis[];
   /** splice-connector pockets under the base (hardware.wago.enabled), else empty */
   wagos: WagoSlot[];
+  /** screw-down cord clamp under the base (hardware.strainRelief.enabled), else null */
+  clamp: StrainClamp | null;
 }
 
 export function bulbFor(p: LampParams): BulbShape {
@@ -337,6 +424,7 @@ export function computeLayout(p: LampParams): Layout {
       }
     }
   }
+  const clamp = strainClamp(p, axisX, axisY, wagos, issues);
   return {
     axisX,
     axisY,
@@ -363,5 +451,6 @@ export function computeLayout(p: LampParams): Layout {
     issues,
     legs,
     wagos,
+    clamp,
   };
 }

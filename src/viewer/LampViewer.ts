@@ -57,7 +57,7 @@ export const DEFAULT_VIEW_OPTIONS: ViewOptions = {
   shadeTranslucent: true,
   showHardware: true,
   showUl: false,
-  visible: { base: true, stem: true, cup: true, shade: true, fitter: true },
+  visible: { base: true, stem: true, cup: true, shade: true, fitter: true, diffuser: true, clamp: true },
 };
 
 /** Z gap between neighbouring parts in the exploded view, mm. */

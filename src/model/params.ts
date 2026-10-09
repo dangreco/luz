@@ -353,11 +353,33 @@ export interface ShadeParams {
   vaseMode: boolean;
   /** slicer line width used as the wall thickness in vase mode */
   vaseLineWidth: number;
+
+  /** optional separate diffuser (printed translucent / white) covering the bottom or top opening */
+  diffuser: DiffuserParams;
+}
+
+/**
+ * bottom: annular disc across the bottom opening (hole around the stem / cup), skirt rising into the shade.
+ * top: full disc across the top opening, skirt hanging down into the shade.
+ */
+export type DiffuserPosition = 'none' | 'bottom' | 'top';
+
+export interface DiffuserParams {
+  position: DiffuserPosition;
+  /** disc and skirt wall; 0.8–1.6 mm passes plenty of light in natural PETG / white PLA */
+  thickness: number;
+  /** skirt that sleeves inside the shade rim and holds the diffuser by friction */
+  skirtHeight: number;
+  /** gap per side between the skirt and the shade's inner wall */
+  clearance: number;
+  /** distance of the disc's outer face from the shade rim, inward */
+  inset: number;
 }
 
 export interface MaterialsParams {
   shade: MaterialId;
   structure: MaterialId;
+  diffuser: MaterialId;
   /** degrees below the material HDT treated as the service limit */
   heatMargin: number;
   ambient: number;
@@ -540,7 +562,8 @@ export const DEFAULT_PARAMS: LampParams = {
     basketRim: 8,
     vaseMode: false,
     vaseLineWidth: 0.8,
+    diffuser: { position: 'none', thickness: 1.2, skirtHeight: 10, clearance: 0.3, inset: 0 },
   },
-  materials: { shade: 'PETG', structure: 'PETG', heatMargin: 10, ambient: 25 },
+  materials: { shade: 'PETG', structure: 'PETG', diffuser: 'PETG', heatMargin: 10, ambient: 25 },
   quality: { radialSegments: 192, ringsPer10mm: 4 },
 };

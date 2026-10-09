@@ -1,4 +1,4 @@
-import { CORD_CLEAR, cordBoreDiameter, type Layout, type WagoSlot } from '../model/layout';
+import { CORD_CLEAR, cordBoreDiameter, type Layout, type StrainClamp, type WagoSlot } from '../model/layout';
 import type { EdgeStyle, JointParams, LampParams, SectionParams } from '../model/params';
 import { WAGO_CONNECTORS } from '../model/hardware';
 import { angles, sectionRadius, sectionRing } from '../model/section';
@@ -18,6 +18,8 @@ const CONE_SEGS = 4;
 const THROUGH = 1;
 /** How far a fused joint embeds its loft into the mating body (guarantees a solid union). */
 const FUSE_EMBED = 0.6;
+/** Gap per side between the cord-clamp bar and its recess. */
+const CLAMP_FIT = 0.3;
 
 /** The cavity and every internal bore of the cup is round. */
 const circleSection: SectionParams = {
@@ -633,6 +635,25 @@ function buildBaseSolid(
     if (w.model === '2273-202')
       notes.push('2273-202 is rated for SOLID wire only — cord-set and socket leads are stranded: use 221-412 lever-nuts instead.');
   }
+  if (layout.clamp) {
+    const c = layout.clamp;
+    const across: [number, number] = [-c.along[1], c.along[0]];
+    const recess = orientedBlock(m, c.x, c.y, zb - THROUGH, c.along, c.barWidth + 2 * CLAMP_FIT, c.barLen + 2 * CLAMP_FIT, c.thickness + THROUGH);
+    solid = solid.subtract(recess);
+    recess.delete();
+    const d = Math.max(1.5, hw.strainRelief.screwDiameter);
+    for (const side of [-1, 1]) {
+      const px = c.x + across[0] * c.screwOffset * side;
+      const py = c.y + across[1] * c.screwOffset * side;
+      // pilot ≈ 0.8 × nominal for self-tapping screws in plastic
+      const pilot = bore(m, 0.8 * d, zb, zb + c.thickness + c.pilotDepth, px, py, 24);
+      solid = solid.subtract(pilot);
+      pilot.delete();
+    }
+    notes.push(
+      `Cord clamp recess ${r1(c.barLen)} × ${r1(c.barWidth)} × ${r1(c.thickness)} mm across the cord channel, with two Ø${r1(0.8 * d)} mm pilot holes ${r1(c.pilotDepth)} mm deep for M${r1(d)} self-tapping screws.`,
+    );
+  }
   return solid;
 }
 
@@ -914,5 +935,44 @@ export function buildStructure(m: ManifoldToplevel, p: LampParams, layout: Layou
     }
     emit('cup', 'Socket cup', cupSolid, true, cupNotes);
   }
+  if (layout.clamp) parts.push(buildClampBar(m, p, layout, layout.clamp));
   return parts;
+}
+
+/**
+ * Cord-clamp bar in its assembled position (flush with the base underside): a plate with two screw clearance holes
+ * and two 0.6 mm transverse ridges on the cord side that bite into the jacket.
+ */
+function buildClampBar(m: ManifoldToplevel, p: LampParams, layout: Layout, c: StrainClamp): SolidPart {
+  const hw = p.hardware;
+  const zb = layout.baseBottom;
+  const across: [number, number] = [-c.along[1], c.along[0]];
+  const d = Math.max(1.5, hw.strainRelief.screwDiameter);
+  const ridgeH = 0.6;
+  // the plate stops ridgeH short so the ridges (not the plate) apply the squeeze
+  const plateT = c.thickness - ridgeH;
+  const parts: Manifold[] = [orientedBlock(m, c.x, c.y, zb, c.along, c.barWidth, c.barLen, plateT)];
+  const ridgeLen = (hw.prewiredCord ? hw.plugWidth : hw.cordWidth) + 2 * CORD_CLEAR;
+  for (const side of [-1, 1]) {
+    const off = (side * c.barWidth) / 4;
+    parts.push(orientedBlock(m, c.x + c.along[0] * off, c.y + c.along[1] * off, zb + plateT - 0.01, across, ridgeLen, 1.2, ridgeH + 0.01));
+  }
+  let bar = m.Manifold.union(parts);
+  for (const side of [-1, 1]) {
+    const hole = bore(m, d + 0.4, zb - THROUGH, zb + c.thickness + THROUGH, c.x + across[0] * c.screwOffset * side, c.y + across[1] * c.screwOffset * side, 24);
+    bar = bar.subtract(hole);
+    hole.delete();
+  }
+  return {
+    id: 'clamp',
+    label: 'Cord clamp bar',
+    solid: bar,
+    printFlip: false,
+    notes: [
+      `${r1(c.barLen)} × ${r1(c.barWidth)} × ${r1(c.thickness)} mm bar; ridges squeeze the cord by ${r1(hw.strainRelief.squeeze)} mm. ` +
+        `Fasten with 2 × M${r1(d)} (#4 for M3) self-tapping pan-head screws, ≥ ${Math.ceil(c.thickness + c.pilotDepth - 1)} mm long — snug, do not crush the cord.`,
+      'Tie an Underwriters knot in the cord inside the socket as well: the clamp takes the pull at the base, the knot at the terminals.',
+      'Prints flat, ridges up.',
+    ],
+  };
 }
