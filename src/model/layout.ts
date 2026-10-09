@@ -1,5 +1,5 @@
 import { BULB_SHAPES, bulbProfile, type BulbShape } from './hardware';
-import type { LampParams } from './params';
+import type { HardwareParams, LampParams } from './params';
 import { angles, sectionRadius } from './section';
 import { shadeSurface, type ShadeSurface } from './shadeSurface';
 
@@ -23,6 +23,69 @@ export interface LegAxis {
   top: [number, number, number];
   /** lower end: centre of the printed foot sphere, or the dowel axis on the table (z = 0) */
   tip: [number, number, number];
+}
+
+/** Diametral slack added around the cord wherever it passes through material. */
+export const CORD_CLEAR = 0.8;
+
+/** Diameter a bore must have so the cord — or the moulded plug, when the cord set is prewired — passes. */
+export function cordBoreDiameter(hw: HardwareParams): number {
+  if (!hw.prewiredCord) return Math.max(hw.cordWidth, hw.cordThickness) + 2 * CORD_CLEAR;
+  return Math.hypot(hw.plugWidth, hw.plugThickness) + 2 * CORD_CLEAR;
+}
+
+/**
+ * One splice-connector pocket under the base, open at the base underside, centred at (x, y). `along` is the unit XY
+ * direction of the cord exit; sizes include the clearance.
+ */
+export interface WagoSlot {
+  x: number;
+  y: number;
+  along: [number, number];
+  /** pocket size along the exit direction, across it, and its depth up from the base underside */
+  lenAlong: number;
+  lenAcross: number;
+  depth: number;
+  /** true: connector stands wire-entries down (its depth is vertical); false: lies flat, levers down */
+  standing: boolean;
+}
+
+/** Material the base keeps above a pocket so it never breaks through the top. */
+export const POCKET_ROOF = 1.5;
+/** Printed wall kept between a pocket and the cord bore / channel. */
+const POCKET_WALL = 1.6;
+
+/** Two pockets either side of the cord bore, or [] when disabled or the connectors cannot fit the base height. */
+function wagoSlots(p: LampParams, axisX: number, axisY: number): WagoSlot[] {
+  const hw = p.hardware;
+  const w = hw.wago;
+  if (!w.enabled) return [];
+  const c = 2 * Math.max(0, w.clearance);
+  const room = p.base.height - POCKET_ROOF;
+  const standing = w.depth + c <= room;
+  if (!standing && w.height + c > room) return [];
+  const lenAlong = (standing ? w.width : w.depth) + c;
+  const lenAcross = (standing ? w.height : w.width) + c;
+  const exit = (p.base.cordExitAngle * Math.PI) / 180;
+  const along: [number, number] = [Math.cos(exit), Math.sin(exit)];
+  const across: [number, number] = [-along[1], along[0]];
+  // keep clear of the cord bore, the cord channel and the spigot hole above it
+  const channelW = (hw.prewiredCord ? hw.plugWidth : hw.cordWidth) + 2 * CORD_CLEAR;
+  const joint = p.stem.height > 0 ? p.stem.baseJoint : p.stem.cupJoint;
+  const jointD =
+    joint.kind === 'spigot'
+      ? Math.max(cordBoreDiameter(hw), p.stem.height > 0 ? p.stem.boreDiameter : 0) + 2 * Math.max(1.2, joint.spigotWall) + joint.clearance
+      : 0;
+  const off = Math.max(cordBoreDiameter(hw), channelW, jointD) / 2 + POCKET_WALL + lenAcross / 2;
+  return [-1, 1].map((side) => ({
+    x: axisX + across[0] * off * side,
+    y: axisY + across[1] * off * side,
+    along,
+    lenAlong,
+    lenAcross,
+    depth: (standing ? w.depth : w.height) + c,
+    standing,
+  }));
 }
 
 export interface Layout {
@@ -59,6 +122,8 @@ export interface Layout {
   issues: string[];
   /** base.legs ≥ 3: one axis per leg (printed or dowel), else empty */
   legs: LegAxis[];
+  /** splice-connector pockets under the base (hardware.wago.enabled), else empty */
+  wagos: WagoSlot[];
 }
 
 export function bulbFor(p: LampParams): BulbShape {
@@ -250,6 +315,28 @@ export function computeLayout(p: LampParams): Layout {
   if (sh.mount === 'lip' && p.cup.size / 2 > surface.innerRadius(0, 0) - sh.baseGrooveClearance - 2.4)
     issues.push('Socket cup is wider than the lip opening — reduce the cup size or widen the shade.');
 
+  const wagos = wagoSlots(p, axisX, axisY);
+  if (hw.wago.enabled) {
+    if (wagos.length === 0)
+      issues.push(
+        `Base is too low for the ${hw.wago.model} pockets (needs ≥ ${(hw.wago.height + 2 * hw.wago.clearance + POCKET_ROOF).toFixed(1)} mm) — raise the base or disable the connector holders.`,
+      );
+    else if (p.base.shellWall > 0)
+      issues.push('Connector pockets need a solid base — set the hollow shell wall to 0 or disable the connector holders.');
+    else {
+      let inradius = Infinity;
+      for (const phi of angles(72)) inradius = Math.min(inradius, sectionRadius(p.base.section, phi) * p.base.size - p.base.bottomEdgeRadius);
+      const reach = Math.max(...wagos.map((s) => Math.hypot(s.x, s.y) + Math.hypot(s.lenAlong, s.lenAcross) / 2));
+      if (reach > inradius - 2)
+        issues.push('Connector pockets reach past the base edge — widen the base or disable the connector holders.');
+      const legged = p.base.legs >= 3;
+      if (!legged && p.base.weightPocketDiameter > 0) {
+        const near = Math.min(...wagos.map((s) => Math.hypot(s.x, s.y) - Math.hypot(s.lenAlong, s.lenAcross) / 2));
+        if (near < p.base.weightPocketDiameter / 2 + 1.6)
+          issues.push('Connector pockets overlap the weight pocket — shrink the weight pocket or disable the connector holders.');
+      }
+    }
+  }
   return {
     axisX,
     axisY,
@@ -275,5 +362,6 @@ export function computeLayout(p: LampParams): Layout {
     totalHeight: Math.max(shadeTop, bulbTop, socketTop),
     issues,
     legs,
+    wagos,
   };
 }

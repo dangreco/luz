@@ -1,4 +1,4 @@
-import type { BulbTech, DowelMaterial, MaterialId, SocketBase, SocketMount, SocketSpec } from './params';
+import type { BulbTech, DowelMaterial, MaterialId, SocketBase, SocketMount, SocketSpec, WagoModel } from './params';
 
 const IN = 25.4;
 
@@ -197,6 +197,44 @@ export const DOWEL_MATERIALS: Record<DowelMaterial, { label: string; density: nu
   wood: { label: 'Hardwood dowel (oak/maple ≈ 0.7)', density: 0.7, color: 0xc19a6b },
   aluminum: { label: 'Aluminium rod', density: 2.7, color: 0xb8bec6 },
   steel: { label: 'Steel rod', density: 7.85, color: 0x7d838c },
+};
+
+export interface WagoConnector {
+  label: string;
+  /** housing width × height × depth, mm (manufacturer data sheet "physical data") */
+  width: number;
+  height: number;
+  depth: number;
+  /** strip length, mm */
+  strip: number;
+  /** max surrounding air temperature (T-marking), °C */
+  tMax: number;
+  source: string;
+}
+
+/**
+ * 2-conductor WAGO splice connectors, UL 486C listed (600 V / 20 A). 221-412 takes solid, stranded and fine-stranded
+ * 24–12 AWG (cord-set leads are fine-stranded); 2273-202 is push-in for SOLID 18–14 AWG only.
+ */
+export const WAGO_CONNECTORS: Record<WagoModel, WagoConnector> = {
+  '221-412': {
+    label: 'WAGO 221-412 lever-nut (all conductor types, 24–12 AWG)',
+    width: 13.2,
+    height: 8.4,
+    depth: 18.8,
+    strip: 11,
+    tMax: 85,
+    source: 'WAGO data sheet 221-412 (v08.05.2024): 13.2 × 8.4 × 18.8 mm, T85, UL 486C',
+  },
+  '2273-202': {
+    label: 'WAGO 2273-202 push-wire (solid 18–14 AWG only)',
+    width: 10,
+    height: 5.8,
+    depth: 16.7,
+    strip: 11,
+    tMax: 60,
+    source: 'WAGO data sheet 2273-202: 10 × 5.8 × 16.7 mm, T60, UL 486C',
+  },
 };
 
 /* ---------------------------------------------------------------------------------------------------------

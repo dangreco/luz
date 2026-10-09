@@ -1,5 +1,5 @@
-import { BULB_SHAPES, BULB_TECH, DOWEL_MATERIALS, MATERIALS, socketPreset } from '../model/hardware';
-import type { BulbTech, DowelMaterial, EdgeStyle, LampParams, LegKind, MaterialId, SocketBase, SocketMount } from '../model/params';
+import { BULB_SHAPES, BULB_TECH, DOWEL_MATERIALS, MATERIALS, WAGO_CONNECTORS, socketPreset } from '../model/hardware';
+import type { BulbTech, DowelMaterial, EdgeStyle, LampParams, LegKind, MaterialId, SocketBase, SocketMount, WagoModel } from '../model/params';
 import { Collapsible, Note, SubHeading, type Option } from './controls';
 import { makeFields } from './fields';
 import { PRESETS } from './presets';
@@ -17,6 +17,10 @@ const MOUNTS: Array<Option<SocketMount>> = [
   { value: 'nipple', label: '1/8 IPS nipple + nut' },
   { value: 'snap', label: 'Snap-in porcelain (spring-clip wings)' },
 ];
+const WAGO_OPTIONS: Array<Option<WagoModel>> = (Object.keys(WAGO_CONNECTORS) as WagoModel[]).map((value) => ({
+  value,
+  label: WAGO_CONNECTORS[value].label,
+}));
 const TECHS: Array<Option<BulbTech>> = (Object.keys(BULB_TECH) as BulbTech[]).map((value) => ({
   value,
   label: BULB_TECH[value].label,
@@ -164,6 +168,38 @@ export function ParamPanel({ p, edit, onReplace, onReset }: ParamPanelProps) {
           <>
             {f.num('Plug width', (d) => d.hardware, 'plugWidth', 10, 50, 0.5, 'mm')}
             {f.num('Plug thickness', (d) => d.hardware, 'plugThickness', 8, 40, 0.5, 'mm')}
+          </>
+        )}
+        <SubHeading>Splice connectors</SubHeading>
+        {f.tog('WAGO holders under the base', (d) => d.hardware.wago, 'enabled', 'Two pockets (one per conductor) beside the cord bore; solid base only')}
+        {hw.wago.enabled && (
+          <>
+            <div className="field select">
+              <label htmlFor="wago-model">Connector</label>
+              <select
+                id="wago-model"
+                value={hw.wago.model}
+                onChange={(e) => {
+                  const model = WAGO_OPTIONS.find((o) => o.value === e.target.value);
+                  if (!model) return;
+                  edit((d) => {
+                    const c = WAGO_CONNECTORS[model.value];
+                    d.hardware.wago = { ...d.hardware.wago, model: model.value, width: c.width, height: c.height, depth: c.depth };
+                  });
+                }}
+              >
+                {WAGO_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {f.num('Connector width', (d) => d.hardware.wago, 'width', 4, 40, 0.1, 'mm', 'Across the wire entries')}
+            {f.num('Connector height', (d) => d.hardware.wago, 'height', 3, 30, 0.1, 'mm', 'Levers closed')}
+            {f.num('Connector depth', (d) => d.hardware.wago, 'depth', 6, 40, 0.1, 'mm', 'Along the wires')}
+            {f.num('Pocket clearance', (d) => d.hardware.wago, 'clearance', 0, 1, 0.05, 'mm', 'Per side: ≈ 0.1 snug, 0.2 normal, 0.3 loose (crush ribs still hold it)')}
+            <Note>{WAGO_CONNECTORS[hw.wago.model].source}. Strip {WAGO_CONNECTORS[hw.wago.model].strip} mm.</Note>
           </>
         )}
       </Collapsible>

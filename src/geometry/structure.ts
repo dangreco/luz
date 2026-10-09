@@ -1,11 +1,6 @@
-import type { Layout } from '../model/layout';
-import type {
-  EdgeStyle,
-  HardwareParams,
-  JointParams,
-  LampParams,
-  SectionParams,
-} from '../model/params';
+import { CORD_CLEAR, cordBoreDiameter, type Layout, type WagoSlot } from '../model/layout';
+import type { EdgeStyle, JointParams, LampParams, SectionParams } from '../model/params';
+import { WAGO_CONNECTORS } from '../model/hardware';
 import { angles, sectionRadius, sectionRing } from '../model/section';
 import { textureField, textureSampling } from '../model/texture';
 import type { SolidPart } from './build';
@@ -21,8 +16,6 @@ const EDGE_SEGS = 6;
 const CONE_SEGS = 4;
 /** Extra reach given to every cutting bore so boolean faces never coincide. */
 const THROUGH = 1;
-/** Diametral slack added around the cord wherever it passes through material. */
-const CORD_CLEAR = 0.8;
 /** How far a fused joint embeds its loft into the mating body (guarantees a solid union). */
 const FUSE_EMBED = 0.6;
 
@@ -194,11 +187,49 @@ function bore(
   return m.Manifold.cylinder(zTop - zBottom, diameter / 2, -1, seg).translate(cx, cy, zBottom);
 }
 
-/** Diameter a bore must have so the cord — or the moulded plug, when the cord set is prewired — passes. */
-function cordBoreDiameter(hw: HardwareParams): number {
-  if (!hw.prewiredCord)
-    return Math.max(hw.cordWidth, hw.cordThickness) + 2 * CORD_CLEAR;
-  return Math.hypot(hw.plugWidth, hw.plugThickness) + 2 * CORD_CLEAR;
+/** Box with its bottom face centred at (x, y, z0), `along` = unit XY direction of its first side. */
+function orientedBlock(
+  m: ManifoldToplevel,
+  x: number,
+  y: number,
+  z0: number,
+  along: [number, number],
+  lenAlong: number,
+  lenAcross: number,
+  height: number,
+): Manifold {
+  const yaw = Math.atan2(along[1], along[0]) / DEG;
+  return m.Manifold.cube([lenAlong, lenAcross, height], true)
+    .translate(0, 0, height / 2)
+    .rotate([0, 0, yaw])
+    .translate(x, y, z0);
+}
+
+/**
+ * Splice-connector pocket, open at the base underside: the pocket itself, two crush ribs standing 0.45 mm proud of
+ * the end walls (returned as adds: the connector is held by interference, not gravity — the lamp gets lifted), and a
+ * wire slot from the pocket into the cord bore.
+ */
+function wagoPocket(m: ManifoldToplevel, s: WagoSlot, zb: number, axisX: number, axisY: number, slotW: number): { cut: Manifold; ribs: Manifold[] } {
+  const across: [number, number] = [-s.along[1], s.along[0]];
+  const pocket = orientedBlock(m, s.x, s.y, zb - THROUGH, s.along, s.lenAlong, s.lenAcross, s.depth + THROUGH);
+  // wire slot: from the pocket centre to the lamp axis, as tall as the pocket
+  const dx = axisX - s.x;
+  const dy = axisY - s.y;
+  const len = Math.hypot(dx, dy);
+  const slot = orientedBlock(m, (s.x + axisX) / 2, (s.y + axisY) / 2, zb - THROUGH, [dx / len, dy / len], len, slotW, s.depth + THROUGH);
+  // ribs on the two end walls (the wire slot breaks through the long wall facing the axis)
+  const ribs: Manifold[] = [];
+  const ribLen = Math.min(6, s.lenAcross * 0.5);
+  const ribH = s.depth * 0.6;
+  for (const side of [-1, 1]) {
+    const off = side * (s.lenAlong / 2 - 0.15);
+    ribs.push(orientedBlock(m, s.x + s.along[0] * off, s.y + s.along[1] * off, zb + s.depth - ribH, across, ribLen, 0.6, ribH));
+  }
+  const cut = m.Manifold.union([pocket, slot]);
+  pocket.delete();
+  slot.delete();
+  return { cut, ribs };
 }
 
 /** Outer diameter of a joint spigot built around a `boreDiameter` cord bore. */
@@ -580,6 +611,27 @@ function buildBaseSolid(
       solid = solid.subtract(t);
       t.delete();
     }
+  }
+  if (layout.wagos.length && !hollow) {
+    const w = hw.wago;
+    const info = WAGO_CONNECTORS[w.model];
+    const slotW = Math.min(layout.wagos[0].lenAcross - 2, Math.max(4, 2 * hw.cordThickness));
+    const ribs: Manifold[] = [];
+    for (const s of layout.wagos) {
+      const pocket = wagoPocket(m, s, zb, layout.axisX, layout.axisY, slotW);
+      solid = solid.subtract(pocket.cut);
+      pocket.cut.delete();
+      ribs.push(...pocket.ribs);
+    }
+    solid = m.Manifold.union([solid, ...ribs]);
+    const s0 = layout.wagos[0];
+    notes.push(
+      `2 × ${w.model} pockets under the base (${r1(s0.lenAlong)} × ${r1(s0.lenAcross)} × ${r1(s0.depth)} mm incl. ${r1(w.clearance)} mm/side), ` +
+        `${s0.standing ? 'connector stands wire-entries down' : 'connector lies flat, levers down'}, with crush ribs and a wire slot to the cord bore. ` +
+        `One connector per conductor (cord ridged/neutral → socket silver/neutral; smooth/hot → brass/hot). Strip ${info.strip} mm; push in until the wires bottom out.`,
+    );
+    if (w.model === '2273-202')
+      notes.push('2273-202 is rated for SOLID wire only — cord-set and socket leads are stranded: use 221-412 lever-nuts instead.');
   }
   return solid;
 }

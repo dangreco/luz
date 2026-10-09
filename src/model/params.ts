@@ -75,6 +75,33 @@ export interface HardwareParams {
   prewiredCord: boolean;
   plugWidth: number;
   plugThickness: number;
+  /** optional printed pockets under the base for the splice connectors joining cord and socket leads */
+  wago: WagoParams;
+  /** optional screw-down cord clamp under the base, at the cord exit */
+  strainRelief: StrainReliefParams;
+}
+
+/** 2-conductor WAGO splice connectors (see WAGO_CONNECTORS in hardware.ts). */
+export type WagoModel = '221-412' | '2273-202';
+
+export interface WagoParams {
+  /** two pockets (one per conductor) under the base, either side of the cord bore */
+  enabled: boolean;
+  model: WagoModel;
+  /** connector body (measure yours): width across the conductor entries, height (levers closed), depth along the wires */
+  width: number;
+  height: number;
+  depth: number;
+  /** gap added on every side of the pocket (≈ 0.1 snug press fit … 0.3 loose drop-in) */
+  clearance: number;
+}
+
+export interface StrainReliefParams {
+  enabled: boolean;
+  /** nominal screw size for the two self-tapping screws (M3 / #4 ≈ 3) */
+  screwDiameter: number;
+  /** how much the clamp bar compresses the cord's thickness */
+  squeeze: number;
 }
 
 export interface BulbParams {
@@ -387,6 +414,8 @@ export const DEFAULT_PARAMS: LampParams = {
     prewiredCord: false,
     plugWidth: 22,
     plugThickness: 16,
+    wago: { enabled: false, model: '221-412', width: 13.2, height: 8.4, depth: 18.8, clearance: 0.2 },
+    strainRelief: { enabled: false, screwDiameter: 3, squeeze: 0.8 },
   },
   bulb: {
     shape: 'A19',

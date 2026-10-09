@@ -240,6 +240,12 @@ export function generateDesign(current: LampParams, seed: number): LampParams {
   }
   randomSurface(r, p);
   if (s.style === 'basket') s.rippleCount = 0; // ripples fight the over/under weave
+  if (p.hardware.wago.enabled) {
+    // connector pockets need a solid base, tall enough for the connectors standing, and no weight pocket
+    b.shellWall = 0;
+    b.weightPocketDiameter = 0;
+    b.height = Math.max(b.height, Math.ceil(p.hardware.wago.depth + 2 * p.hardware.wago.clearance + 3));
+  }
 
   // the shade must at least reach past the bulb tip
   const layout = computeLayout(p);
@@ -275,7 +281,7 @@ export function steady(p: LampParams): void {
     return;
   }
   b.size = round(b.size * 1.15, 0.5);
-  if (b.shellWall <= 0) {
+  if (b.shellWall <= 0 && !p.hardware.wago.enabled) {
     b.weightPocketDiameter = round(b.size * 0.6);
     b.weightPocketDepth = round(b.height * 0.7, 0.5);
   }

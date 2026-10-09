@@ -127,7 +127,7 @@ export class LampViewer {
   private partMeshes = new Map<PartId, Mesh>();
   private hardware: Group | null = null;
   private ul: Group | null = null;
-  private dowels: Group | null = null;
+  private baseHardware: Group | null = null;
   private shadeMaterials: MeshStandardMaterial[] = [];
   private options: ViewOptions = DEFAULT_VIEW_OPTIONS;
   private framed = false;
@@ -220,7 +220,7 @@ export class LampViewer {
     this.shadeMaterials = [];
     this.hardware = null;
     this.ul = null;
-    this.dowels = null;
+    this.baseHardware = null;
     if (build && params) {
       this.content = new Group();
       this.buildParts(build);
@@ -347,7 +347,9 @@ export class LampViewer {
     this.hardware = group;
     this.content?.add(group);
 
-    // Bought dowels / rods: drawn with the base (they never explode with the cup hardware).
+    // Bought parts that live in the base (dowels / rods, splice connectors): drawn with the base, never exploded
+    // with the cup hardware.
+    const baseHardware = new Group();
     if (params.base.legKind === 'dowel' && L.legs.length > 0) {
       const dowelMat = new MeshStandardMaterial({
         color: DOWEL_MATERIALS[params.base.dowelMaterial].color,
@@ -355,7 +357,6 @@ export class LampViewer {
         metalness: params.base.dowelMaterial === 'wood' ? 0 : 0.7,
         clippingPlanes: [],
       });
-      const dowels = new Group();
       const r = params.base.dowelDiameter / 2;
       for (const { top, tip } of L.legs) {
         const a = new Vector3(...tip);
@@ -366,10 +367,23 @@ export class LampViewer {
         const mesh = new Mesh(g, dowelMat);
         mesh.quaternion.setFromUnitVectors(new Vector3(0, 1, 0), dir.clone().normalize());
         mesh.position.copy(a.add(dir.normalize().multiplyScalar(len / 2)));
-        dowels.add(mesh);
+        baseHardware.add(mesh);
       }
-      this.dowels = dowels;
-      this.content?.add(dowels);
+    }
+    if (L.wagos.length > 0) {
+      const clear = new MeshStandardMaterial({ color: 0xd8e4ee, roughness: 0.2, transparent: true, opacity: 0.75, clippingPlanes: [] });
+      const c = 2 * params.hardware.wago.clearance;
+      for (const s of L.wagos) {
+        const h = s.depth - c;
+        const mesh = new Mesh(new BoxGeometry(s.lenAlong - c, s.lenAcross - c, h), clear);
+        mesh.rotation.z = Math.atan2(s.along[1], s.along[0]);
+        mesh.position.set(s.x, s.y, L.baseBottom + h / 2);
+        baseHardware.add(mesh);
+      }
+    }
+    if (baseHardware.children.length > 0) {
+      this.baseHardware = baseHardware;
+      this.content?.add(baseHardware);
     }
   }
 
@@ -418,9 +432,9 @@ export class LampViewer {
       mat.needsUpdate = true;
     }
 
-    for (const group of [this.hardware, this.ul, this.dowels]) {
+    for (const group of [this.hardware, this.ul, this.baseHardware]) {
       if (!group) continue;
-      group.position.z = group === this.dowels ? explodeOf('base') : explodeOf('cup');
+      group.position.z = group === this.baseHardware ? explodeOf('base') : explodeOf('cup');
       group.traverse((child) => {
         if (child instanceof Mesh || child instanceof Line) {
           for (const m of Array.isArray(child.material) ? child.material : [child.material]) {
@@ -431,7 +445,7 @@ export class LampViewer {
       });
     }
     if (this.hardware) this.hardware.visible = o.showHardware;
-    if (this.dowels) this.dowels.visible = o.showHardware && o.visible.base;
+    if (this.baseHardware) this.baseHardware.visible = o.showHardware && o.visible.base;
     if (this.ul) this.ul.visible = o.showUl;
   }
 
