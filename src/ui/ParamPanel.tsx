@@ -353,6 +353,8 @@ export function ParamPanel({ p, edit, onReplace, onReset }: ParamPanelProps) {
       <Collapsible title="Materials">
         {f.sel('Shade material', (d) => d.materials, 'shade', MATERIAL_OPTIONS)}
         {f.sel('Structure material', (d) => d.materials, 'structure', MATERIAL_OPTIONS)}
+        {p.shade.diffuser.position !== 'none' &&
+          f.sel('Diffuser material', (d) => d.materials, 'diffuser', MATERIAL_OPTIONS, 'Natural / translucent or white filament')}
         {f.num('Heat safety margin', (d) => d.materials, 'heatMargin', 0, 40, 1, '°C', 'Service limit = HDT − margin')}
         {f.num('Ambient temperature', (d) => d.materials, 'ambient', 0, 45, 1, '°C')}
       </Collapsible>

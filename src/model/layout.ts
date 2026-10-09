@@ -173,6 +173,94 @@ function strainClamp(p: LampParams, axisX: number, axisY: number, wagos: WagoSlo
   return { x, y, along, barLen, barWidth, thickness, screwOffset, pilotDepth };
 }
 
+/**
+ * Diffuser disc + friction skirt inside the shade. The skirt's outer radius never exceeds the narrowest inner wall
+ * between it and the rim it enters from, so the part can always be pushed in (see diffuserOuterRadius).
+ */
+export interface DiffuserPlan {
+  position: 'bottom' | 'top';
+  /** disc slab, world z */
+  disc0: number;
+  disc1: number;
+  /** skirt band, world z (includes the disc slab) */
+  skirt0: number;
+  skirt1: number;
+  /** centre hole radius (bottom diffusers clear the cup), 0 = solid disc */
+  holeR: number;
+  /** extra radius the shade's inner wall has in the band (fitter seat groove) */
+  recess: number;
+}
+
+/** Outer radius of a diffuser at height z / angle phi: narrowest inner wall between z and the entry rim, minus the gap. */
+export function diffuserOuterRadius(
+  layout: Pick<Layout, 'shade' | 'shadeBottom' | 'shadeTop'>,
+  d: DiffuserPlan,
+  clearance: number,
+  z: number,
+  phi: number,
+): number {
+  const S = layout.shade;
+  const H = Math.max(1e-6, S.height);
+  const a = d.position === 'top' ? z : layout.shadeBottom;
+  const b = d.position === 'top' ? layout.shadeTop : z;
+  let r = Infinity;
+  for (let i = 0; i <= 12; i++) {
+    const t = Math.min(1, Math.max(0, (a + ((b - a) * i) / 12 - layout.shadeBottom) / H));
+    r = Math.min(r, S.innerRadius(t, phi));
+  }
+  return r + d.recess - Math.max(0, clearance);
+}
+
+function diffuserPlan(p: LampParams, l: Omit<Layout, 'diffuser'>, issues: string[]): DiffuserPlan | null {
+  const sh = p.shade;
+  const df = sh.diffuser;
+  if (df.position === 'none') return null;
+  const t = Math.max(0.4, df.thickness);
+  const z0 = l.shadeBottom;
+  const z1 = l.shadeTop;
+  if (df.position === 'top') {
+    if (sh.topClosure !== 'open') {
+      issues.push('A top diffuser needs an open shade top — set the top closure to open, or move the diffuser to the bottom.');
+      return null;
+    }
+    const disc1 = z1 - Math.max(0, df.inset);
+    const disc0 = disc1 - t;
+    const skirt0 = Math.max(z0 + 1, disc1 - Math.max(t, df.skirtHeight));
+    if (disc0 <= z0 + 1 || disc0 < l.bulbTop + 5) {
+      issues.push('Top diffuser would sit on or below the bulb — reduce its inset or make the shade taller.');
+      return null;
+    }
+    return { position: 'top', disc0, disc1, skirt0, skirt1: disc1, holeR: 0, recess: 0 };
+  }
+  if (sh.mount !== 'spider' && sh.mount !== 'fitter') {
+    issues.push('A bottom diffuser hangs below the spider / fitter hub — base- and lip-mounted shades are already closed underneath.');
+    return null;
+  }
+  // annular disc below the hub, around the cup; the skirt rises toward (never into) the hub
+  const disc0 = z0 + Math.max(0, df.inset);
+  const disc1 = disc0 + t;
+  const skirt1 = Math.min(disc0 + Math.max(t, df.skirtHeight), l.hubBottom - 1);
+  if (skirt1 < disc1 + 2) {
+    issues.push(
+      `No room for a bottom diffuser under the hub — raise the shade mount height to ≥ ${(Math.max(0, df.inset) + t + 3).toFixed(1)} mm or use a top diffuser.`,
+    );
+    return null;
+  }
+  let cupR = 0;
+  for (const phi of angles(72)) cupR = Math.max(cupR, sectionRadius(p.cup.section, phi) * p.cup.size * Math.max(1, p.cup.topScale));
+  if (p.stem.height > 0 && disc0 < l.stemTop)
+    for (const phi of angles(72)) cupR = Math.max(cupR, sectionRadius(p.stem.section, phi) * p.stem.size * Math.max(1, p.stem.topScale));
+  const holeR = cupR + 1.5;
+  const recess = sh.mount === 'fitter' ? Math.min(1.6, Math.max(0.8, sh.wallThickness * 0.6)) : 0;
+  let innerMin = Infinity;
+  for (const phi of angles(72)) innerMin = Math.min(innerMin, l.shade.innerRadius(0, phi));
+  if (holeR > innerMin - 8) {
+    issues.push('Bottom diffuser would be a sliver: the cup is nearly as wide as the shade opening — widen the shade or use a top diffuser.');
+    return null;
+  }
+  return { position: 'bottom', disc0, disc1, skirt0: disc0, skirt1, holeR, recess };
+}
+
 export interface Layout {
   axisX: number;
   axisY: number;
@@ -211,6 +299,8 @@ export interface Layout {
   wagos: WagoSlot[];
   /** screw-down cord clamp under the base (hardware.strainRelief.enabled), else null */
   clamp: StrainClamp | null;
+  /** shade.diffuser.position ≠ 'none' and it fits, else null */
+  diffuser: DiffuserPlan | null;
 }
 
 export function bulbFor(p: LampParams): BulbShape {
@@ -425,7 +515,7 @@ export function computeLayout(p: LampParams): Layout {
     }
   }
   const clamp = strainClamp(p, axisX, axisY, wagos, issues);
-  return {
+  const base: Omit<Layout, 'diffuser'> = {
     axisX,
     axisY,
     baseBottom,
@@ -453,4 +543,5 @@ export function computeLayout(p: LampParams): Layout {
     wagos,
     clamp,
   };
+  return { ...base, diffuser: diffuserPlan(p, base, issues) };
 }

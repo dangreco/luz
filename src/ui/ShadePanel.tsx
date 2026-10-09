@@ -9,6 +9,7 @@ import type {
   ShadeSizing,
   SurfaceStyle,
   TopClosure,
+  DiffuserPosition,
 } from '../model/params';
 import { Collapsible, NumberField, Note, SubHeading, ToggleField, type Option } from './controls';
 import { makeFields } from './fields';
@@ -55,6 +56,11 @@ const PATTERNS: Array<Option<PerfPattern>> = [
   { value: 'slots', label: 'Slots' },
   { value: 'diamonds', label: 'Diamonds' },
   { value: 'voronoi', label: 'Voronoi lattice' },
+];
+const DIFFUSER_POSITIONS: Array<Option<DiffuserPosition>> = [
+  { value: 'none', label: 'None' },
+  { value: 'bottom', label: 'Bottom (under the bulb, spider / fitter mounts)' },
+  { value: 'top', label: 'Top (across the top opening)' },
 ];
 
 const CUSTOM_PROFILE_LABELS = ['Bottom', '20 %', '40 %', '60 %', '80 %', 'Top'];
@@ -260,6 +266,23 @@ export function ShadePanel({ p, edit }: PanelProps) {
         {s.vaseMode && f.num('Slicer line width', (d) => d.shade, 'vaseLineWidth', 0.3, 2, 0.05, 'mm', 'Used as the wall thickness in vase mode')}
         {s.vaseMode && !vaseCompatible(s) && (
           <Note>Vase mode is only meaningful for smooth, corrugated-rib or textured shades.</Note>
+        )}
+      </Collapsible>
+
+      <Collapsible title="Diffuser" nested>
+        {f.sel('Diffuser', (d) => d.shade.diffuser, 'position', DIFFUSER_POSITIONS)}
+        {s.diffuser.position !== 'none' && (
+          <>
+            {f.num('Thickness', (d) => d.shade.diffuser, 'thickness', 0.4, 4, 0.1, 'mm', 'Disc and skirt wall: 0.8–1.6 mm (2–4 perimeters) diffuses evenly in translucent PETG / white PLA')}
+            {f.num('Skirt height', (d) => d.shade.diffuser, 'skirtHeight', 2, 40, 0.5, 'mm', 'Sleeve inside the shade rim that holds the diffuser by friction')}
+            {f.num('Fit clearance', (d) => d.shade.diffuser, 'clearance', 0, 1, 0.05, 'mm', 'Per side against the shade inner wall: ≈ 0.2 snug, 0.4 loose')}
+            {f.num('Inset from rim', (d) => d.shade.diffuser, 'inset', 0, 100, 0.5, 'mm')}
+            <Note>
+              {s.diffuser.position === 'bottom'
+                ? 'Annular disc around the cup, under the spider / fitter hub. It closes the bottom opening for UL 153 (closed-bottom spacing).'
+                : 'Full disc across the top opening. It closes the top for UL 153 (closed-top spacing, more heat trapped).'}
+            </Note>
+          </>
         )}
       </Collapsible>
     </Collapsible>

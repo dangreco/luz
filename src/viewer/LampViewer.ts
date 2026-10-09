@@ -278,7 +278,7 @@ export class LampViewer {
         metalness: 0.05,
         clippingPlanes: [],
       });
-      if (part.id === 'shade' || part.id === 'fitter') this.shadeMaterials.push(material);
+      if (part.id === 'shade' || part.id === 'fitter' || part.id === 'diffuser') this.shadeMaterials.push(material);
       const mesh = new Mesh(geometry, material);
       mesh.name = part.id;
       this.partMeshes.set(part.id, mesh);

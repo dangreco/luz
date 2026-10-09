@@ -173,6 +173,8 @@ interface Designation {
   obstructionCm2: number;
   unobstructedCm2: number;
   topCm2: number;
+  /** which opening a diffuser disc closes, if any */
+  diffuser: 'bottom' | 'top' | null;
 }
 
 function designate(p: LampParams, layout: Layout): Designation {
@@ -180,7 +182,9 @@ function designate(p: LampParams, layout: Layout): Designation {
   const obstructed = p.shade.mount === 'spider' || p.shade.mount === 'fitter';
   // Base- and lip-mounted shades stand on the base: the base closes the opening below the lamp.
   const seated = p.shade.mount === 'base' || p.shade.mount === 'lip';
-  const rimCm2 = seated ? 0 : rimAreaCm2(layout.shade, 0);
+  // A diffuser disc closes the opening it spans (any light-transmitting cover is part of the enclosure).
+  const diffuser = layout.diffuser?.position;
+  const rimCm2 = seated || diffuser === 'bottom' ? 0 : rimAreaCm2(layout.shade, 0);
   let obstructionCm2 = 0;
   if (obstructed) {
     // §47.3.4: hub and spokes projected on the opening are obstructions (lampholder / ≤12.7 mm nipple are not)
@@ -190,11 +194,13 @@ function designate(p: LampParams, layout: Layout): Designation {
     obstructionCm2 = (hub + p.shade.spokeCount * p.shade.spokeWidth * span) / 100;
   }
   const topCm2 =
-    p.shade.topClosure === 'open'
-      ? rimAreaCm2(layout.shade, 1)
-      : p.shade.topClosure === 'vented'
-        ? (p.shade.ventCount * Math.PI * (p.shade.ventDiameter / 2) ** 2) / 100
-        : 0;
+    diffuser === 'top'
+      ? 0
+      : p.shade.topClosure === 'open'
+        ? rimAreaCm2(layout.shade, 1)
+        : p.shade.topClosure === 'vented'
+          ? (p.shade.ventCount * Math.PI * (p.shade.ventDiameter / 2) ** 2) / 100
+          : 0;
   const required = row ? row.areaCm2 : Infinity;
   return {
     top: topCm2 >= required ? 'open' : 'closed',
@@ -207,6 +213,7 @@ function designate(p: LampParams, layout: Layout): Designation {
     obstructionCm2,
     unobstructedCm2: rimCm2 - obstructionCm2,
     topCm2,
+    diffuser: diffuser ?? null,
   };
 }
 
@@ -222,7 +229,9 @@ function designationCheck(p: LampParams, d: Designation): SafetyCheck {
       source: `${UL153_SOURCE}, §47.3 Table 47.1`,
     };
   }
-  if (d.obstructed) {
+  if (d.diffuser === 'bottom') {
+    detail.push('Bottom: the diffuser disc covers the opening below the lamp → closed.');
+  } else if (d.obstructed) {
     detail.push(
       `Bottom rim ${fmt(d.rimCm2)} cm² − obstructions ${fmt(d.obstructionCm2)} cm² (hub annulus + spokes) = ${fmt(d.unobstructedCm2)} cm² unobstructed vs ${fmt(d.requiredBottomCm2)} cm² required (1.1 × ${fmt(d.requiredCm2, 0)} cm² because the opening is obstructed, §47.3.4) → ${d.bottom}.`,
     );
@@ -233,7 +242,11 @@ function designationCheck(p: LampParams, d: Designation): SafetyCheck {
       `Bottom opening ${fmt(d.rimCm2)} cm² vs ${fmt(d.requiredCm2, 0)} cm² required → ${d.bottom}.`,
     );
   }
-  detail.push(`Top opening ${fmt(d.topCm2)} cm² vs ${fmt(d.requiredCm2, 0)} cm² required → ${d.top}.`);
+  detail.push(
+    d.diffuser === 'top'
+      ? 'Top: the diffuser disc covers the top opening → closed.'
+      : `Top opening ${fmt(d.topCm2)} cm² vs ${fmt(d.requiredCm2, 0)} cm² required → ${d.top}.`,
+  );
   if (d.top === 'closed' && d.bottom === 'closed') {
     if (p.bulb.markedWatts > UL153_CLOSED_CLOSED.maxWatts) {
       status = 'fail';
@@ -267,9 +280,10 @@ function designationCheck(p: LampParams, d: Designation): SafetyCheck {
         `Top area is within 10 % of its threshold (${fmt(topRatio * 100, 0)} % of required).`,
       );
     }
-    const seated = p.shade.mount === 'base' || p.shade.mount === 'lip';
+    const seated = p.shade.mount === 'base' || p.shade.mount === 'lip' || d.diffuser === 'bottom';
     const droppedBottom = d.bottom === 'closed' && !seated;
-    if (droppedBottom || d.top === 'closed') {
+    const droppedTop = d.top === 'closed' && d.diffuser !== 'top';
+    if (droppedBottom || droppedTop) {
       status = 'warn';
       detail.push(
         `One opening is below its area threshold, so the designation dropped to ${d.top}/${d.bottom} and the stricter ${droppedBottom ? 'Table 47.3' : 'Table 47.4'} spacing applies.`,
@@ -292,15 +306,15 @@ function designationCheck(p: LampParams, d: Designation): SafetyCheck {
 interface CenterlineResult {
   dist: number;
   z: number;
-  surface: 'wall' | 'top cap' | 'hub plane';
+  surface: 'wall' | 'top cap' | 'hub plane' | 'diffuser';
   /** distance ignoring the hub plane (wall + cap only) */
   shadeDist: number;
 }
 
 /**
  * Minimum distance (mm) from any point of the lamp centerline (vertical segment from the centre
- * contact) to the shade: the nominal inner wall, the top cap when the top is designated closed,
- * and — for spider/fitter mounts — the hub/spoke plane, all treated as shade surface.
+ * contact) to the shade: the nominal inner wall, the top cap (or top diffuser) when the top is designated closed,
+ * a bottom diffuser, and — for spider/fitter mounts — the hub/spoke plane, all treated as shade surface.
  */
 function centerlineClearance(
   p: LampParams,
@@ -313,7 +327,10 @@ function centerlineClearance(
   const steps = 240;
   let best: CenterlineResult = { dist: Infinity, z: 0, surface: 'wall', shadeDist: Infinity };
   let shadeDist = Infinity;
-  const capZ = layout.shadeTop - p.shade.topThickness;
+  // a top diffuser is the cap: its underside is the closed surface
+  const top = layout.diffuser?.position === 'top' ? layout.diffuser : null;
+  const capZ = top ? top.disc0 : layout.shadeTop - p.shade.topThickness;
+  const capTop = top ? top.disc1 : layout.shadeTop;
   for (let i = 0; i <= steps; i++) {
     const z = layout.contactZ + (i / steps) * centerline;
     let wall: number;
@@ -324,9 +341,17 @@ function centerlineClearance(
     shadeDist = Math.min(shadeDist, wall);
     if (topClosed) {
       // the cap spans the full top opening; the axis point is always inside its footprint
-      const capDist = Math.max(0, z - layout.shadeTop, capZ - z);
+      const capDist = Math.max(0, z - capTop, capZ - z);
       if (capDist < best.dist) best = { ...best, dist: capDist, z, surface: 'top cap' };
       shadeDist = Math.min(shadeDist, capDist);
+    }
+    const df = layout.diffuser;
+    if (df?.position === 'bottom') {
+      // annular disc around the cup: nearest point is its hole edge
+      const dz = Math.max(0, df.disc0 - z, z - df.disc1);
+      const dfDist = Math.hypot(df.holeR, dz);
+      if (dfDist < best.dist) best = { ...best, dist: dfDist, z, surface: 'diffuser' };
+      shadeDist = Math.min(shadeDist, dfDist);
     }
     if (includeHub && layout.hubThickness > 0) {
       const dz = Math.max(0, layout.hubBottom - z, z - (layout.hubBottom + layout.hubThickness));
@@ -532,7 +557,7 @@ function thermalShadeCheck(p: LampParams, layout: Layout, d: Designation): Safet
       }
     }
   }
-  if (closedTop) {
+  if (closedTop && layout.diffuser?.position !== 'top') {
     // underside of the top cap: centre is in the plume, the rim only sees radiation
     const capZ = layout.shadeTop - p.shade.topThickness;
     const capR = minInner(shade, 1);
@@ -545,18 +570,42 @@ function thermalShadeCheck(p: LampParams, layout: Layout, d: Designation): Safet
     }
   }
   const T = amb + maxRise;
-  const status: Status = T <= limit ? 'pass' : T <= limit + 10 ? 'warn' : 'fail';
+  let status: Status = T <= limit ? 'pass' : T <= limit + 10 ? 'warn' : 'fail';
+  const lines = [
+    `${tech.label} at ${fmt(p.bulb.watts)} W (${Math.round(tech.radiantFraction * 100)} % radiant, ` +
+      `${fmt(Qc)} W convective): hottest modelled point (${where}) reaches ≈ ${fmt(T)} °C = ${fmt(amb, 0)} °C ` +
+      `ambient + ${fmt(maxRise)} °C rise, vs ${mat.label} service limit ${fmt(limit, 0)} °C (HDT ${mat.hdt} °C ` +
+      `− ${fmt(p.materials.heatMargin, 0)} °C margin)${closedTop ? ', including the ×1.5 factor for heat trapped by the closed top' : ''}.`,
+  ];
+  const df = layout.diffuser;
+  if (df) {
+    // the disc face toward the bulb: top diffusers sit in the plume, bottom ones only see radiation
+    const dMat = MATERIALS[p.materials.diffuser];
+    const dLimit = dMat.hdt - p.materials.heatMargin;
+    const zFace = df.position === 'top' ? df.disc0 : df.disc1;
+    const rOut = minInner(shade, Math.min(1, Math.max(0, (zFace - layout.shadeBottom) / Math.max(1e-6, shade.height))));
+    let dRise = 0;
+    for (let k = 0; k <= 8; k++) {
+      const r = df.holeR + ((rOut - df.holeR) * k) / 8;
+      dRise = Math.max(dRise, riseAt(c.x + r, c.y, zFace));
+    }
+    const Td = amb + dRise;
+    const sd: Status = Td <= dLimit ? 'pass' : Td <= dLimit + 10 ? 'warn' : 'fail';
+    if (sd === 'fail' || (sd === 'warn' && status !== 'fail')) status = sd;
+    lines.push(
+      `${df.position === 'top' ? 'Top' : 'Bottom'} diffuser (${dMat.label}): ≈ ${fmt(Td)} °C vs service limit ${fmt(dLimit, 0)} °C.` +
+        (sd === 'pass' ? '' : ' Use a higher-HDT translucent material (PETG → PC), a lower-wattage LED, or move the diffuser further from the bulb.'),
+    );
+  }
+  lines.push(
+    'Screening estimate only (point-source radiation absorbed 50 % at h = 10 W/m²·K, plus a Heskestad plume above the bulb) — ' +
+      'confirm with a 2-hour thermocouple test at full wattage before regular use.',
+  );
   return {
     id: 'thermal-shade',
     title: 'Shade material heat screening (estimate)',
     status,
-    detail:
-      `${tech.label} at ${fmt(p.bulb.watts)} W (${Math.round(tech.radiantFraction * 100)} % radiant, ` +
-      `${fmt(Qc)} W convective): hottest modelled point (${where}) reaches ≈ ${fmt(T)} °C = ${fmt(amb, 0)} °C ` +
-      `ambient + ${fmt(maxRise)} °C rise, vs ${mat.label} service limit ${fmt(limit, 0)} °C (HDT ${mat.hdt} °C ` +
-      `− ${fmt(p.materials.heatMargin, 0)} °C margin)${closedTop ? ', including the ×1.5 factor for heat trapped by the closed top' : ''}. ` +
-      `Screening estimate only (point-source radiation absorbed 50 % at h = 10 W/m²·K, plus a Heskestad plume above the bulb) — ` +
-      `confirm with a 2-hour thermocouple test at full wattage before regular use.`,
+    detail: lines.join(' '),
     source: `${mat.source}; model per Luz docs/SPEC.md (engineering estimate)`,
   };
 }
