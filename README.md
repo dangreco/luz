@@ -11,6 +11,11 @@ cUL/CSA-listed E26 or E12 cord set. Every dimension, shape and surface treatment
 parameter; the design is checked live against UL 153 / CSA C22.2 No. 12 lamp-to-shade
 rules, and every printed part exports as STL (zip) or a single 3MF.
 
+Hardware options: keyless sockets on a 1/8 IPS nipple or threaded skirt + shade ring, or snap-in
+porcelain sockets (spring-clip wings in the cup plate); pockets for 2-conductor WAGO splice connectors
+(221-412 / 2273-202) and a screw-down cord clamp under the base; dowel or rod legs. Shades can carry a
+separate friction-fit diffuser (top, or bottom under the hub) printed in translucent or white filament.
+
 **Randomize** (header) generates a new form — base, stem, cup, shade, legs, surface — for the
 socket, bulb and materials you have set. Each candidate is built in a worker and must pass every
 safety check (warnings allowed, failures never); the shade is enlarged and the support widened as

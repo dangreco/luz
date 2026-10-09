@@ -11,14 +11,20 @@ Build a static, browser-only (Vite + React + TypeScript) parametric table-lamp g
 
 1. **Electrical hardware is bought, never printed.** Support only North-American Edison sockets sold in
    Canada: **E26 (medium)** and **E12 (candelabra)**, in cUL/CSA-listed cord sets or keyless sockets mounted
-   on a **1/8 IPS** threaded nipple (0.405 in / 10.29 mm OD, 27 TPI). Socket body, threaded-skirt and
-   shade-ring dimensions are editable presets because vendors differ — the user measures their socket.
+   on a **1/8 IPS** threaded nipple (0.405 in / 10.29 mm OD, 27 TPI), on a threaded skirt + shade ring, or
+   **snap-in porcelain/phenolic sockets** held by two spring-clip wings in a round hole in the cup plate.
+   Socket body, threaded-skirt, shade-ring and snap-in dimensions are editable presets because vendors
+   differ — the user measures their socket.
 2. **Parts** (each exported separately): base, stem, socket cup, shade, and an optional separate fitter
    (hub + spokes) for vase-mode shades. Shade mounting modes: integrated spider, separate fitter,
    or seated in a base groove. Legged (tripod) bases either print their legs, or carry angled sockets
    for bought wooden dowels / metal rods (measured diameter + diametral clearance, insertion depth,
    sleeve wall); the tool reports the dowel cut length and mitre angle and adds the rod weight to the
    stability check.
+   Optional bought-part fittings: **pockets for two 2-conductor WAGO splice connectors** under the base, and
+   a **screw-down cord clamp** (printed bar + two self-tapping screws) across the base cord channel.
+   Optional **diffuser**: a separate disc (top, or annular bottom under a spider/fitter hub) with a
+   friction skirt, printed in translucent or white filament.
 3. **Shapes**: base, stem, cup and shade cross-sections can be circle, regular polygon (3+ sides, so
    triangle/square/hex…) with corner rounding, or superellipse; with aspect ratio and rotation. The shade's
    top and bottom sections can differ and are morphed along the height.
@@ -45,6 +51,45 @@ Build a static, browser-only (Vite + React + TypeScript) parametric table-lamp g
 | Mount | 1/8 IPS nipple (10.29 mm OD) + hex nut | same | industry standard |
 
 Thread diameters and ring sizes vary by vendor → **all socket dimensions are editable**, defaults above.
+
+### Snap-in sockets
+
+| Item | E26 porcelain | E12 phenolic | Source |
+|---|---|---|---|
+| Mounting hole | 1-17/32 in (38.9 mm) | 1 in (25.4 mm) | B&P 48107i; Paxton 2440 |
+| Face / wing reach | 1-3/4 in (44.5 mm) | — (≈ 28 mm assumed) | B&P 48107i |
+| Body behind panel | ≈ 1.68 in (42.7 mm) | ≈ 32 mm (assumed) | Etlin-Daniels IS212 |
+| Panel the clips grip | 0.032–0.093 in (0.8–2.4 mm) | same (assumed) | Etlin-Daniels IS212 |
+| Rating | 660 W / 250 V | 75 W / 125 V | B&P, Paxton |
+
+The cup plate (plus the spider/fitter hub, which sits under the face) is the panel: the layout fails if its
+thickness is outside the grip range. The cavity clears the body and the spread wings.
+
+### Splice connectors (WAGO, UL 486C)
+
+| Model | W × H × D (mm) | Conductors | T-rating | Source |
+|---|---|---|---|---|
+| 221-412 lever-nut | 13.2 × 8.4 × 18.8 | solid, stranded, fine-stranded 24–12 AWG | T85 | WAGO data sheet 221-412 |
+| 2273-202 push-wire | 10 × 5.8 × 16.7 | **solid** 18–14 AWG only | T60 | WAGO data sheet 2273-202 |
+
+Cord-set and socket leads are stranded, so 221-412 is the default and the tool warns on 2273-202. Strip
+11 mm. Pockets open on the base underside (connector standing wire-entries down when the base is tall
+enough, else lying flat), with 0.2 mm/side clearance, two crush ribs (the lamp gets lifted) and a wire slot
+to the cord bore. Solid bases only.
+
+### Cord strain relief
+
+A pull on the supply cord must never reach splices or terminal screws (UL 153 / CSA C22.2 No. 12 strain
+relief; OSHA 29 CFR 1926.405(g)(2)(iv)). Option: a printed bar in a flush recess across the base cord
+channel, ridges squeezing the jacket ≈ 0.8 mm, two self-tapping screws in Ø0.8·d pilots ≥ 2.5·d deep.
+An Underwriters knot inside the socket is recommended either way.
+
+### Diffusers
+
+Separate part, friction skirt following the shade's inner wall minus 0.3 mm/side (never wider than the
+narrowest wall between it and the rim it enters from). Print 0.8–1.6 mm, 1–2 perimeters, no infill. A
+diffuser **closes the opening it spans** for UL 153: bottom → Table 47.3, top → Table 47.4 (its underside is
+the cap); the heat screening checks it against its own material's HDT.
 
 ### Lamp-to-shade spacing — UL 153 / CSA C22.2 No. 12 (bi-national "Portable Luminaires")
 
