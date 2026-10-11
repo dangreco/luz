@@ -1,5 +1,5 @@
 import { BULB_SHAPES, BULB_TECH, DOWEL_MATERIALS, MATERIALS, WAGO_CONNECTORS, socketPreset } from '../model/hardware';
-import type { BulbTech, DowelMaterial, EdgeStyle, LampParams, LegKind, MaterialId, SocketBase, SocketMount, WagoModel } from '../model/params';
+import type { BulbTech, DowelMaterial, EdgeStyle, Fastening, LampParams, LegKind, MaterialId, SocketBase, SocketMount, WagoModel } from '../model/params';
 import { Collapsible, Note, SubHeading, type Option } from './controls';
 import { makeFields } from './fields';
 import { PRESETS } from './presets';
@@ -32,6 +32,10 @@ const MATERIAL_OPTIONS: Array<Option<MaterialId>> = (Object.keys(MATERIALS) as M
 const EDGES: Array<Option<EdgeStyle>> = [
   { value: 'fillet', label: 'Fillet' },
   { value: 'chamfer', label: 'Chamfer' },
+];
+const FASTENINGS: Array<Option<Fastening>> = [
+  { value: 'insert', label: 'M3 heat-set inserts (Voron M3×5×4)' },
+  { value: 'selfTap', label: 'Self-tapping screws into printed pilots' },
 ];
 const JOINTS: Array<Option<'fused' | 'spigot'>> = [
   { value: 'spigot', label: 'Separate parts, press-fit spigot' },
@@ -153,6 +157,7 @@ export function ParamPanel({ p, edit, onReplace, onReset }: ParamPanelProps) {
             {f.num('Clip wing reach', (d) => d.hardware.socket, 'clipReach', 10, 80, 0.1, 'mm', 'Across the relaxed spring wings, behind the panel')}
             {f.num('Grip: min panel', (d) => d.hardware.socket, 'gripMin', 0.3, 6, 0.1, 'mm')}
             {f.num('Grip: max panel', (d) => d.hardware.socket, 'gripMax', 0.5, 8, 0.1, 'mm', 'Typical 0.032–0.093 in (0.8–2.4 mm); the cup plate (+ hub) must fall inside')}
+            {f.tog('Anti-rotation lugs', (d) => d.hardware.socket, 'antiRotate', 'Two printed lugs key the snap-in socket against rotation when screwing in a bulb')}
           </>
         )}
         {f.num('Contact depth', (d) => d.hardware.socket, 'contactDepth', 2, 60, 0.1, 'mm', hw.socketMount === 'snap' ? 'Face flange (panel top) down to the bulb centre contact' : 'Socket top rim down to the bulb centre contact')}
@@ -170,16 +175,31 @@ export function ParamPanel({ p, edit, onReplace, onReset }: ParamPanelProps) {
             {f.num('Plug thickness', (d) => d.hardware, 'plugThickness', 8, 40, 0.5, 'mm')}
           </>
         )}
+        {(hw.wago.enabled || hw.strainRelief.enabled) && (
+          <>
+            <SubHeading>Service screws</SubHeading>
+            {f.sel('Fastening', (d) => d.hardware, 'fastening', FASTENINGS)}
+            {hw.fastening === 'insert' && (
+              <>
+                {f.num('Insert hole', (d) => d.hardware.insert, 'holeDiameter', 3.8, 5.4, 0.05, 'mm', 'Modeled bore. Datasheet 4.4 mm; printed holes shrink ≈ 0.2–0.3 mm. Tune until the insert pre-seats with light resistance')}
+                {f.num('Insert outer diameter', (d) => d.hardware.insert, 'outerDiameter', 3.5, 7, 0.05, 'mm')}
+                {f.num('Insert length', (d) => d.hardware.insert, 'length', 2, 8, 0.1, 'mm')}
+                {f.num('Lead-in chamfer', (d) => d.hardware.insert, 'chamfer', 0, 1, 0.1, 'mm', '45° at the hole mouth')}
+                <Note>Melt in with the iron ≈ 10–20 °C above print temperature, stop ~90 % in and press flush with a flat tool.</Note>
+              </>
+            )}
+          </>
+        )}
         <SubHeading>Cord strain relief</SubHeading>
-        {f.tog('Screw-down cord clamp under the base', (d) => d.hardware.strainRelief, 'enabled', 'Printed bar in a recess across the cord channel (solid plinth with cord channel)')}
+        {f.tog('Screw-down cord clamp', (d) => d.hardware.strainRelief, 'enabled', 'Printed bar that presses the cord against a roof: inside the wiring bay when it is on, else in a recess across the underside cord channel (solid plinth)')}
         {hw.strainRelief.enabled && (
           <>
-            {f.num('Screw size', (d) => d.hardware.strainRelief, 'screwDiameter', 2, 5, 0.5, 'mm', 'Self-tapping pan-head screws: M3 / #4 = 3')}
+            {hw.fastening === 'selfTap' && f.num('Screw size', (d) => d.hardware.strainRelief, 'screwDiameter', 2, 5, 0.5, 'mm', 'Self-tapping pan-head screws: M3 / #4 = 3')}
             {f.num('Cord squeeze', (d) => d.hardware.strainRelief, 'squeeze', 0.2, 2, 0.1, 'mm', 'How far the ridges press into the cord jacket (≈ 20 % of the cord thickness)')}
           </>
         )}
         <SubHeading>Splice connectors</SubHeading>
-        {f.tog('WAGO holders under the base', (d) => d.hardware.wago, 'enabled', 'Two pockets (one per conductor) beside the cord bore; solid base only')}
+        {f.tog('Wiring bay (screwed cover + WAGO holders)', (d) => d.hardware.wago, 'enabled', 'Kettle-style service bay in the base underside closed by a screwed-on cover plate; two slide-in connector sleeves on its ceiling. Solid base only')}
         {hw.wago.enabled && (
           <>
             <div className="field select">
@@ -206,8 +226,11 @@ export function ParamPanel({ p, edit, onReplace, onReset }: ParamPanelProps) {
             {f.num('Connector width', (d) => d.hardware.wago, 'width', 4, 40, 0.1, 'mm', 'Across the wire entries')}
             {f.num('Connector height', (d) => d.hardware.wago, 'height', 3, 30, 0.1, 'mm', 'Levers closed')}
             {f.num('Connector depth', (d) => d.hardware.wago, 'depth', 6, 40, 0.1, 'mm', 'Along the wires')}
-            {f.num('Pocket clearance', (d) => d.hardware.wago, 'clearance', 0, 1, 0.05, 'mm', 'Per side: ≈ 0.1 snug, 0.2 normal, 0.3 loose (crush ribs still hold it)')}
-            <Note>{WAGO_CONNECTORS[hw.wago.model].source}. Strip {WAGO_CONNECTORS[hw.wago.model].strip} mm.</Note>
+            {f.num('Sleeve clearance', (d) => d.hardware.wago, 'clearance', 0, 1, 0.05, 'mm', 'Per side: ≈ 0.15 snug, 0.25 normal, 0.35 loose (crush ribs still hold it)')}
+            {hw.fastening === 'selfTap' && f.num('Cover screw size', (d) => d.hardware.wago, 'coverScrewDiameter', 2, 5, 0.5, 'mm', 'Self-tapping pan-head screws: M3 / #4 = 3')}
+            <Note>
+              {WAGO_CONNECTORS[hw.wago.model].source}. Strip {WAGO_CONNECTORS[hw.wago.model].strip} mm. Kettle-style: unscrew the bottom plate to reach the splices; levers face the cover.
+            </Note>
           </>
         )}
       </Collapsible>

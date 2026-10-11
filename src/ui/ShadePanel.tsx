@@ -59,8 +59,7 @@ const PATTERNS: Array<Option<PerfPattern>> = [
 ];
 const DIFFUSER_POSITIONS: Array<Option<DiffuserPosition>> = [
   { value: 'none', label: 'None' },
-  { value: 'bottom', label: 'Bottom (under the bulb, spider / fitter mounts)' },
-  { value: 'top', label: 'Top (across the top opening)' },
+  { value: 'liner', label: 'Liner (translucent inner wall)' },
 ];
 
 const CUSTOM_PROFILE_LABELS = ['Bottom', '20 %', '40 %', '60 %', '80 %', 'Top'];
@@ -273,14 +272,12 @@ export function ShadePanel({ p, edit }: PanelProps) {
         {f.sel('Diffuser', (d) => d.shade.diffuser, 'position', DIFFUSER_POSITIONS)}
         {s.diffuser.position !== 'none' && (
           <>
-            {f.num('Thickness', (d) => d.shade.diffuser, 'thickness', 0.4, 4, 0.1, 'mm', 'Disc and skirt wall: 0.8–1.6 mm (2–4 perimeters) diffuses evenly in translucent PETG / white PLA')}
-            {f.num('Skirt height', (d) => d.shade.diffuser, 'skirtHeight', 2, 40, 0.5, 'mm', 'Sleeve inside the shade rim that holds the diffuser by friction')}
-            {f.num('Fit clearance', (d) => d.shade.diffuser, 'clearance', 0, 1, 0.05, 'mm', 'Per side against the shade inner wall: ≈ 0.2 snug, 0.4 loose')}
-            {f.num('Inset from rim', (d) => d.shade.diffuser, 'inset', 0, 100, 0.5, 'mm')}
+            {f.num('Thickness', (d) => d.shade.diffuser, 'thickness', 0.4, 4, 0.1, 'mm', 'Liner wall: 0.8–1.6 mm (1–2 perimeters) diffuses evenly in translucent PETG / white PLA')}
+            {f.num('Gap to shade', (d) => d.shade.diffuser, 'gap', 1, 30, 0.5, 'mm', 'Air gap between the liner and the narrowest part of the shade inner wall')}
+            {f.num('Height above seat', (d) => d.shade.diffuser, 'height', 0, 300, 1, 'mm', '0 = auto (up to 10 mm below the shade top)')}
+            {f.num('Seat clearance', (d) => d.shade.diffuser, 'seatClearance', 0, 1, 0.05, 'mm', 'Per side in the hub rails / base-top groove')}
             <Note>
-              {s.diffuser.position === 'bottom'
-                ? 'Annular disc around the cup, under the spider / fitter hub. It closes the bottom opening for UL 153 (closed-bottom spacing).'
-                : 'Full disc across the top opening. It closes the top for UL 153 (closed-top spacing, more heat trapped).'}
+              Translucent inner wall standing on the hub (spider / fitter) or base top; light exits through liner + shade together.
             </Note>
           </>
         )}

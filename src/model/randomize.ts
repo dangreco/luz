@@ -1,5 +1,4 @@
-import { UL153_OPEN_CLOSED } from './hardware';
-import { computeLayout } from './layout';
+import { computeLayout, fastenerHole, minBayBaseHeight } from './layout';
 import { DEFAULT_PARAMS, type LampParams, type RibWave, type SectionParams, type TexturePattern } from './params';
 import { angles, sectionRadius } from './section';
 
@@ -140,9 +139,8 @@ export function generateDesign(current: LampParams, seed: number): LampParams {
   p.materials = structuredClone(current.materials);
   p.quality = structuredClone(current.quality);
 
-  // the cord clamp sits in the underside channel of a solid plinth, and a bottom diffuser hangs under a hub:
-  // only the stem / fitter archetypes have those
-  const hubOnly = p.hardware.strainRelief.enabled || current.shade.diffuser.position === 'bottom';
+  // the cord clamp sits in the underside channel of a solid plinth: only the stem / fitter archetypes have that
+  const hubOnly = p.hardware.strainRelief.enabled;
   const archetype = pick<Archetype>(r, hubOnly ? ['stem', 'fitter'] : ['stem', 'stem', 'fitter', 'pedestal', 'pedestal', 'tripod']);
   const family = randomSection(r);
   const b = p.base;
@@ -173,9 +171,6 @@ export function generateDesign(current: LampParams, seed: number): LampParams {
     s.bulge = round(range(r, -0.08, 0.22), 0.01);
     s.bulgePosition = round(range(r, 0.35, 0.65), 0.01);
     s.mountHeight = round(range(r, 0, 40) * k);
-    // a bottom diffuser needs its disc + a few mm of skirt below the hub
-    const df = current.shade.diffuser;
-    if (df.position === 'bottom') s.mountHeight = Math.max(s.mountHeight, Math.ceil(df.inset + df.thickness + Math.min(df.skirtHeight, 8) + 1));
     s.spokeCount = int(r, 3, 4);
     s.spokeRise = round(range(r, 20, 40));
     const hubHole =
@@ -248,30 +243,19 @@ export function generateDesign(current: LampParams, seed: number): LampParams {
   randomSurface(r, p);
   if (s.style === 'basket') s.rippleCount = 0; // ripples fight the over/under weave
   if (p.hardware.wago.enabled) {
-    // connector pockets need a solid base, tall enough for the connectors standing, and no weight pocket
+    // the wiring bay needs a solid base tall enough for the sleeves, ceiling and cover, and no weight pocket
     b.shellWall = 0;
     b.weightPocketDiameter = 0;
-    b.height = Math.max(b.height, Math.ceil(p.hardware.wago.depth + 2 * p.hardware.wago.clearance + 3));
+    b.height = Math.max(b.height, Math.ceil(minBayBaseHeight(p)));
   }
   if (p.hardware.strainRelief.enabled) {
     b.cordChannel = true;
     // the clamp sits near the edge on the exit line; keep the weight pocket inside it
     b.weightPocketDiameter = Math.min(b.weightPocketDiameter, round(b.size * 0.4));
-    b.height = Math.max(b.height, Math.ceil(2.5 * p.hardware.strainRelief.screwDiameter + 12));
+    b.height = Math.max(b.height, Math.ceil(fastenerHole(p.hardware, p.hardware.strainRelief.screwDiameter).depth + 12));
   }
   // the diffuser is a material / look choice the user made, like the dowel stock: keep it
   s.diffuser = structuredClone(current.shade.diffuser);
-  const plan = computeLayout(p).diffuser;
-  if (plan?.position === 'bottom') {
-    // a bottom diffuser closes the bottom (Table 47.3): its hole edge must clear the contact by the table spacing,
-    // which only lowering the shade (mount height) achieves — the footprint growth in fitLayout cannot
-    const row = UL153_OPEN_CLOSED[p.hardware.socketBase].find((rw) => rw.watts >= p.bulb.markedWatts);
-    if (row) {
-      const l = computeLayout(p);
-      const drop = Math.sqrt(Math.max(0, (row.spacing + 3) ** 2 - plan.holeR ** 2));
-      s.mountHeight += Math.max(0, Math.ceil(plan.disc1 - (l.contactZ - drop)));
-    }
-  }
 
   // the shade must at least reach past the bulb tip
   const layout = computeLayout(p);

@@ -34,88 +34,290 @@ export function cordBoreDiameter(hw: HardwareParams): number {
   return Math.hypot(hw.plugWidth, hw.plugThickness) + 2 * CORD_CLEAR;
 }
 
-/**
- * One splice-connector pocket under the base, open at the base underside, centred at (x, y). `along` is the unit XY
- * direction of the cord exit; sizes include the clearance.
- */
-export interface WagoSlot {
-  x: number;
-  y: number;
-  along: [number, number];
-  /** pocket size along the exit direction, across it, and its depth up from the base underside */
-  lenAlong: number;
-  lenAcross: number;
+const DEG = Math.PI / 180;
+
+/** Material the base keeps above the wiring bay so screws and pockets never break through the top. */
+export const POCKET_ROOF = 1.5;
+/** Min screw engagement in the printed base (self-tapping into plastic: ≥ 2–2.5 × the screw diameter). */
+const SCREW_ENGAGE = 2.5;
+/** Insert-mode screws are always M3 (the Voron M3×5×4 insert). */
+export const INSERT_SCREW = 3;
+/** Min printed wall around a heat-set insert (CNC Kitchen W for M3×5×4). */
+export const INSERT_WALL = 1.6;
+/** ISO 4762 / 7380 M3 stock lengths, mm. */
+const M3_LENGTHS = [4, 5, 6, 8, 10, 12, 16, 20, 25, 30, 35, 40];
+
+/** A blind screw hole opening downward (mouth at the bottom, depth upward). */
+export interface FastenerHole {
+  kind: 'insert' | 'selfTap';
+  /** nominal screw diameter */
+  screw: number;
+  /** modeled bore: insert hole or 0.8·d pilot */
+  diameter: number;
+  /** blind depth above the mouth */
   depth: number;
-  /** true: connector stands wire-entries down (its depth is vertical); false: lies flat, levers down */
-  standing: boolean;
+  /** 45° lead-in at the mouth (0 = none) */
+  chamfer: number;
+  /** radius around the hole centre that must stay printed material */
+  wallRadius: number;
+  /** boss diameter when the hole needs a standalone boss */
+  bossDiameter: number;
 }
 
-/** Material the base keeps above a pocket so it never breaks through the top. */
-export const POCKET_ROOF = 1.5;
-/** Printed wall kept between a pocket and the cord bore / channel. */
-const POCKET_WALL = 1.6;
+export function fastenerHole(hw: HardwareParams, selfTapScrew: number): FastenerHole {
+  if (hw.fastening === 'insert') {
+    const ins = hw.insert;
+    const wallRadius = ins.outerDiameter / 2 + INSERT_WALL;
+    return {
+      kind: 'insert',
+      screw: INSERT_SCREW,
+      diameter: ins.holeDiameter,
+      depth: ins.length + 1,
+      chamfer: Math.max(0, ins.chamfer),
+      wallRadius,
+      bossDiameter: 2 * wallRadius,
+    };
+  }
+  const d = Math.max(1.5, selfTapScrew);
+  return {
+    kind: 'selfTap',
+    screw: d,
+    diameter: 0.8 * d,
+    depth: SCREW_ENGAGE * d + 1,
+    chamfer: 0,
+    wallRadius: d / 2 + 2,
+    bossDiameter: SCREW_ENGAGE * d + 3,
+  };
+}
 
-/** Two pockets either side of the cord bore, or [] when disabled or the connectors cannot fit the base height. */
-function wagoSlots(p: LampParams, axisX: number, axisY: number): WagoSlot[] {
+/** Screw length for clamping `grip` mm of part onto `hole`. */
+export function screwLength(hole: FastenerHole, grip: number, insertLength: number): number {
+  if (hole.kind === 'selfTap') return Math.ceil(grip + hole.depth - 1);
+  // ≥ 2.5 mm thread in the insert, never bottoming in the L + 1 blind hole
+  const max = grip + insertLength + 0.8;
+  const fit = M3_LENGTHS.filter((l) => l >= grip + 2.5 && l <= max);
+  return fit.length ? fit[fit.length - 1] : Math.floor(max);
+}
+
+/** Printed wall around a connector sleeve, and the end stop behind its centre end. */
+export const SLEEVE_WALL = 2;
+export const SLEEVE_STOP = 2;
+
+/** Distance from the lamp axis to the base outline along `along`, shrunk by `inset`; Infinity if never reached. */
+function baseEdgeAlong(b: LampParams['base'], axisX: number, axisY: number, along: [number, number], inset: number): number {
+  for (let s = 0; s < 400; s += 0.5) {
+    const x = axisX + along[0] * s;
+    const y = axisY + along[1] * s;
+    if (Math.hypot(x, y) > sectionRadius(b.section, Math.atan2(y, x)) * b.size - inset) return s;
+  }
+  return Infinity;
+}
+
+/** Ceiling thickness of the wiring bay: carries the cover-screw holes (and the cord-clamp holes when enabled). */
+export function bayCeiling(hw: HardwareParams): number {
+  const cover = fastenerHole(hw, hw.wago.coverScrewDiameter);
+  const clampHole = hw.strainRelief.enabled ? fastenerHole(hw, hw.strainRelief.screwDiameter) : null;
+  return Math.max(POCKET_ROOF, cover.depth + 1, clampHole ? clampHole.depth + POCKET_ROOF : 0);
+}
+
+/** Cover plate thickness: thicker when it carries the felt-pad recesses. */
+export function bayCoverThickness(b: LampParams['base']): number {
+  const feet = b.legs < 3 && b.feetCount > 0 && b.feetDiameter > 0 && b.feetDepth > 0;
+  return feet ? 3 : 2.4;
+}
+
+/** Lowest base height that holds the connector sleeves, the cover plate and the ceiling. */
+export function minBayBaseHeight(p: LampParams): number {
+  const w = p.hardware.wago;
+  return w.height + 2 * Math.max(0, w.clearance) + bayCoverThickness(p.base) + bayCeiling(p.hardware) + 0.5;
+}
+
+/**
+ * Kettle-style service bay in the base underside: a round cavity closed by a screwed-on cover plate. The splice
+ * connectors slide into sleeves molded on the bay ceiling, levers facing down (away from their mount) so they are
+ * fully exposed when the cover is off. Positions are world XY; `along` is the unit cord-exit direction.
+ */
+export interface WiringBay {
+  /** bay cavity, round, centred on the lamp axis */
+  diameter: number;
+  /** cavity depth from the base underside up to the ceiling underside */
+  depth: number;
+  /** ceiling thickness (carries sleeves + screw bosses) */
+  ceiling: number;
+  /** cover plate thickness (sits flush in the cavity mouth) */
+  coverThickness: number;
+  /** two connector sleeves hanging from the ceiling; (x, y) = centre of the inner slot, which slides along `along`
+   *  and is open at its outer end; `len` / `wid` / `hgt` = inner slot length / width / height */
+  sleeves: Array<{ x: number; y: number; along: [number, number]; len: number; wid: number; hgt: number }>;
+  /** cover screw boss centres, 3 at 120° */
+  screws: Array<{ x: number; y: number }>;
+  /** cover screw holes in the ceiling bosses, mouth at the cover's top face */
+  hole: FastenerHole;
+  /** cord exit: a width × height box through the base wall along `along`, hugging the ceiling; (x, y) = its centre,
+   *  z = centre height, len = length along the exit direction */
+  exit: { x: number; y: number; z: number; along: [number, number]; width: number; height: number; len: number };
+}
+
+function wiringBay(
+  p: LampParams,
+  baseBottom: number,
+  axisX: number,
+  axisY: number,
+  issues: string[],
+): WiringBay | null {
   const hw = p.hardware;
   const w = hw.wago;
-  if (!w.enabled) return [];
-  const c = 2 * Math.max(0, w.clearance);
-  const room = p.base.height - POCKET_ROOF;
-  const standing = w.depth + c <= room;
-  if (!standing && w.height + c > room) return [];
-  const lenAlong = (standing ? w.width : w.depth) + c;
-  const lenAcross = (standing ? w.height : w.width) + c;
-  const exit = (p.base.cordExitAngle * Math.PI) / 180;
-  const along: [number, number] = [Math.cos(exit), Math.sin(exit)];
+  const b = p.base;
+  if (!w.enabled) return null;
+  if (b.shellWall > 0) {
+    issues.push('The wiring bay needs a solid base — set the hollow shell wall to 0 or disable the wiring bay.');
+    return null;
+  }
+  const legged = b.legs >= 3;
+  if (!legged && b.weightPocketDiameter > 0)
+    issues.push('The weight pocket sits inside the wiring bay — disable one of them.');
+
+  const hole = fastenerHole(hw, w.coverScrewDiameter);
+  const ceiling = bayCeiling(hw);
+  const coverThickness = bayCoverThickness(b);
+  const c = Math.max(0, w.clearance);
+  const hgt = w.height + 2 * c;
+  const wid = w.width + 2 * c;
+  const len = w.depth + 2 * c + 1;
+  const depth = b.height - ceiling;
+  if (depth < hgt + coverThickness + 0.5) {
+    issues.push(
+      `Base too low for the wiring bay (needs ≥ ${minBayBaseHeight(p).toFixed(1)} mm) — raise the base or disable the bay.`,
+    );
+    return null;
+  }
+
+  // cavity diameter: as wide as the narrowest underside / top outline allows, 3 mm of wall all round
+  let inradius = Infinity;
+  for (const phi of angles(72)) {
+    const rb = sectionRadius(b.section, phi) * b.size;
+    const rt = sectionRadius(b.section, phi - b.twist * DEG) * b.size * b.topScale;
+    inradius = Math.min(inradius, Math.min(rb, rt) - b.bottomEdgeRadius);
+  }
+  const axisOff = Math.hypot(axisX, axisY);
+  let diameter = 2 * (inradius - axisOff - 3);
+  if (legged) {
+    // the legs are unioned after the cavity cut: keep the bay clear of their roots
+    const rTop = b.legKind === 'dowel' ? (b.dowelDiameter + b.dowelClearance) / 2 + b.dowelSleeveWall : b.legDiameter / 2;
+    diameter = Math.min(diameter, 2 * (b.legRootRadius - rTop - 3 - axisOff));
+  }
+
+  // sleeves: two channels either side of the exit line, slot centred on the axis along the exit direction
+  const exitA = b.cordExitAngle * DEG;
+  const along: [number, number] = [Math.cos(exitA), Math.sin(exitA)];
   const across: [number, number] = [-along[1], along[0]];
-  // keep clear of the cord bore, the cord channel and the spigot hole above it
-  const channelW = (hw.prewiredCord ? hw.plugWidth : hw.cordWidth) + 2 * CORD_CLEAR;
-  const joint = p.stem.height > 0 ? p.stem.baseJoint : p.stem.cupJoint;
-  const jointD =
-    joint.kind === 'spigot'
-      ? Math.max(cordBoreDiameter(hw), p.stem.height > 0 ? p.stem.boreDiameter : 0) + 2 * Math.max(1.2, joint.spigotWall) + joint.clearance
-      : 0;
-  const off = Math.max(cordBoreDiameter(hw), channelW, jointD) / 2 + POCKET_WALL + lenAcross / 2;
-  return [-1, 1].map((side) => ({
+  const cordD = cordBoreDiameter(hw);
+  // the cord runs between the sleeves, along the exit line
+  const off = wid / 2 + SLEEVE_WALL + cordD / 2 + 1;
+  const sleeveR = Math.hypot(len / 2 + SLEEVE_STOP, off + wid / 2 + SLEEVE_WALL) + 2;
+  if (diameter < Math.max(46, 2 * sleeveR)) {
+    issues.push('The base is too small for the wiring bay — widen the base.');
+    return null;
+  }
+  const R = diameter / 2;
+  const sleeves = [-1, 1].map((side) => ({
     x: axisX + across[0] * off * side,
     y: axisY + across[1] * off * side,
     along,
-    lenAlong,
-    lenAcross,
-    depth: (standing ? w.depth : w.height) + c,
-    standing,
+    len,
+    wid,
+    hgt,
   }));
+
+  // cover screws: 3 bosses at 120°, none on the exit line (clamp + cord) or across it (sleeves)
+  const bossD = hole.bossDiameter;
+  const rBoss = R - hole.bossDiameter / 2 - 3;
+  const screws = [60, 180, 300].map((deg) => ({
+    x: axisX + Math.cos(exitA + deg * DEG) * rBoss,
+    y: axisY + Math.sin(exitA + deg * DEG) * rBoss,
+  }));
+  let bossClear = rBoss - bossD / 2 >= cordD / 2 + 1;
+  for (const s of screws) {
+    const la = (s.x - axisX) * along[0] + (s.y - axisY) * along[1];
+    const lc = (s.x - axisX) * across[0] + (s.y - axisY) * across[1];
+    const dx = Math.max(-len / 2 - SLEEVE_STOP - la, 0, la - len / 2);
+    const dy = Math.max(off - wid / 2 - SLEEVE_WALL - Math.abs(lc), 0, Math.abs(lc) - (off + wid / 2 + SLEEVE_WALL));
+    if (Math.hypot(dx, dy) < bossD / 2 + 1) bossClear = false;
+  }
+  if (!bossClear) {
+    issues.push('The base is too small for the wiring bay: the cover screw bosses collide with the connector sleeves — widen the base.');
+    return null;
+  }
+
+  // cord exit: a box through the wall, hugging the ceiling so the cord clamp can press it up against the roof
+  const exitH = (hw.prewiredCord ? hw.plugThickness : hw.cordThickness) + 2 * CORD_CLEAR;
+  const exitW = (hw.prewiredCord ? hw.plugWidth : hw.cordWidth) + 2 * CORD_CLEAR;
+  const edge = baseEdgeAlong(b, axisX, axisY, along, 0);
+  const sIn = R - 1;
+  const sOut = (Number.isFinite(edge) ? edge : R + 20) + 3;
+  if (depth - exitH < b.bottomEdgeRadius)
+    issues.push('The cord exit breaks out of the base edge — move the exit angle or raise the base.');
+  else if (depth - exitH < coverThickness + 0.5)
+    issues.push('The cord exit would cut into the bay cover plate — raise the base or use a thinner cord.');
+  const sMid = (sIn + sOut) / 2;
+  return {
+    diameter,
+    depth,
+    ceiling,
+    coverThickness,
+    sleeves,
+    screws,
+    hole,
+    exit: {
+      x: axisX + along[0] * sMid,
+      y: axisY + along[1] * sMid,
+      z: baseBottom + depth - exitH / 2,
+      along,
+      width: exitW,
+      height: exitH,
+      len: sOut - sIn,
+    },
+  };
 }
 
 /**
- * Screw-down cord clamp across the cord channel under a solid plinth: a printed bar sits flush in a recess in the
- * base underside and presses the cord up against the channel roof; two self-tapping screws pull it in. Centred at
- * (x, y) on the channel, `along` = unit XY exit direction.
+ * Screw-down cord clamp: a printed bar presses the cord up against a roof and two self-tapping screws pull it in.
+ * Without a wiring bay the bar sits flush in a recess in the underside of a solid plinth, across the cord channel
+ * (`inBay` false); with a bay it sits inside the bay between the cord exit and the sleeves, screwed up into the
+ * ceiling. Centred at (x, y), `along` = unit XY exit direction, bar bottom at world z.
  */
 export interface StrainClamp {
   x: number;
   y: number;
   along: [number, number];
-  /** bar length across the channel, width along it, thickness (= recess depth) */
+  /** bar length across the cord, width along it, thickness */
   barLen: number;
   barWidth: number;
   thickness: number;
-  /** screw centres at ±screwOffset across the channel */
+  /** screw centres at ±screwOffset across the cord */
   screwOffset: number;
-  /** pilot hole depth above the recess floor */
-  pilotDepth: number;
+  /** screw holes in the base, mouth at z + reach */
+  hole: FastenerHole;
+  inBay: boolean;
+  /** world z of the bar's bottom face */
+  z: number;
+  /** distance from the bar's bottom face up to where the pilots start */
+  reach: number;
 }
 
-/** Min screw engagement in the printed base (self-tapping into plastic: ≥ 2–2.5 × the screw diameter). */
-const SCREW_ENGAGE = 2.5;
-
-function strainClamp(p: LampParams, axisX: number, axisY: number, wagos: WagoSlot[], issues: string[]): StrainClamp | null {
+function strainClamp(
+  p: LampParams,
+  baseBottom: number,
+  axisX: number,
+  axisY: number,
+  bay: WiringBay | null,
+  issues: string[],
+): StrainClamp | null {
   const hw = p.hardware;
   const sr = hw.strainRelief;
   if (!sr.enabled) return null;
   const b = p.base;
-  if (b.legs >= 3 || b.shellWall > 0 || !b.cordChannel) {
+  if (!bay && (b.legs >= 3 || b.shellWall > 0 || !b.cordChannel)) {
     issues.push(
       'The cord clamp sits in the underside cord channel of a solid plinth — enable the cord channel on a solid, leg-free base, or disable it and rely on an Underwriters knot at the socket.',
     );
@@ -124,41 +326,64 @@ function strainClamp(p: LampParams, axisX: number, axisY: number, wagos: WagoSlo
   const ct = hw.prewiredCord ? hw.plugThickness : hw.cordThickness;
   const channelW = (hw.prewiredCord ? hw.plugWidth : hw.cordWidth) + 2 * CORD_CLEAR;
   const channelH = ct + 2 * CORD_CLEAR;
-  // bar top = channel roof − cord thickness + squeeze, bar bottom flush with the underside
+  // bar top = channel roof − cord thickness + squeeze, bar bottom flush with the underside (or the roof − channel)
   const thickness = channelH - hw.cordThickness + sr.squeeze;
-  const d = Math.max(1.5, sr.screwDiameter);
-  const screwOffset = channelW / 2 + d / 2 + 2;
+  const hole = fastenerHole(hw, sr.screwDiameter);
+  const d = hole.screw;
+  const screwOffset = channelW / 2 + hole.wallRadius;
   const barLen = 2 * screwOffset + d + 4;
   const barWidth = Math.max(10, 2 * d + 4);
-  const pilotDepth = SCREW_ENGAGE * d + 1;
   if (thickness < 1.6)
     issues.push(`Cord clamp bar would be only ${thickness.toFixed(1)} mm thick — increase the squeeze.`);
-  if (thickness + pilotDepth > b.height - 1.5)
-    issues.push(
-      `Base is too low for the cord clamp screws (needs ≥ ${(thickness + pilotDepth + 1.5).toFixed(1)} mm) — raise the base or use smaller screws.`,
-    );
   const exit = (b.cordExitAngle * Math.PI) / 180;
   const along: [number, number] = [Math.cos(exit), Math.sin(exit)];
   const across: [number, number] = [-along[1], along[0]];
-  // distance from the axis to the base edge along the exit, at the underside
-  let edge = Infinity;
-  for (let s = 0; s < 400; s += 0.5) {
-    const x = axisX + along[0] * s;
-    const y = axisY + along[1] * s;
-    const r = Math.hypot(x, y);
-    const phi = Math.atan2(y, x);
-    if (r > sectionRadius(b.section, phi) * b.size - b.bottomEdgeRadius) {
-      edge = s;
-      break;
-    }
+
+  if (bay) {
+    // the ceiling already carries the pilots (bayCeiling); the bar must clear the cover and the sleeve ends
+    const zBar = baseBottom + bay.depth - channelH;
+    if (zBar < baseBottom + bay.coverThickness + 0.5)
+      issues.push('Base is too low for the cord clamp inside the wiring bay — raise the base or use a thinner cord.');
+    const R = bay.diameter / 2;
+    // furthest the bar can sit with both its outer corners inside the round bay wall
+    const sMax = Math.sqrt(Math.max(0, (R - 1) ** 2 - (barLen / 2) ** 2)) - barWidth / 2;
+    const sleeveEnd = bay.sleeves[0].len / 2 + 1.5;
+    if (sMax - barWidth / 2 < sleeveEnd)
+      issues.push('Base is too small for the cord clamp inside the wiring bay — widen the base or disable the clamp.');
+    const bayBosses = bay.screws.some((s) => {
+      const la = (s.x - axisX) * along[0] + (s.y - axisY) * along[1] - sMax;
+      const lc = (s.x - axisX) * across[0] + (s.y - axisY) * across[1];
+      return Math.hypot(Math.max(Math.abs(la) - barWidth / 2, 0), Math.max(Math.abs(lc) - barLen / 2, 0)) < bay.hole.bossDiameter / 2 + 1;
+    });
+    if (bayBosses)
+      issues.push('The cord clamp collides with a cover screw boss inside the wiring bay — widen the base or disable the clamp.');
+    return {
+      x: axisX + along[0] * sMax,
+      y: axisY + along[1] * sMax,
+      along,
+      barLen,
+      barWidth,
+      thickness,
+      screwOffset,
+      hole,
+      inBay: true,
+      z: zBar,
+      reach: channelH,
+    };
   }
+
+  if (thickness + hole.depth > b.height - 1.5)
+    issues.push(
+      `Base is too low for the cord clamp screws (needs ≥ ${(thickness + hole.depth + 1.5).toFixed(1)} mm) — raise the base or use smaller screws.`,
+    );
+  // distance from the axis to the base edge along the exit, at the underside
+  const edge = baseEdgeAlong(b, axisX, axisY, along, b.bottomEdgeRadius);
   const sClamp = edge - 6 - barWidth / 2;
-  // keep clear of the connector pockets and cord bore (on the axis) and the weight pocket (on the origin)
-  const wagoReach = wagos.length ? wagos[0].lenAlong / 2 + 2 : 0;
+  // keep clear of the cord bore (on the axis) and the weight pocket (on the origin)
   const cordR = cordBoreDiameter(hw) / 2 + 2;
   const x = axisX + along[0] * sClamp;
   const y = axisY + along[1] * sClamp;
-  let fits = sClamp - barWidth / 2 >= Math.max(wagoReach, cordR);
+  let fits = sClamp - barWidth / 2 >= cordR;
   let nearest = Infinity;
   for (const [i, j] of [[-1, -1], [-1, 1], [1, -1], [1, 1], [-1, 0], [1, 0]]) {
     const cx = x + (along[0] * i * barWidth) / 2 + (across[0] * j * barLen) / 2;
@@ -170,95 +395,83 @@ function strainClamp(p: LampParams, axisX: number, axisY: number, wagos: WagoSlo
     issues.push('Base is too small for the cord clamp between the cord bore and the edge — widen the base or disable the clamp.');
   else if (b.weightPocketDiameter > 0 && nearest < b.weightPocketDiameter / 2 + 1.6)
     issues.push('Cord clamp overlaps the weight pocket — shrink the weight pocket or disable the clamp.');
-  return { x, y, along, barLen, barWidth, thickness, screwOffset, pilotDepth };
+  return { x, y, along, barLen, barWidth, thickness, screwOffset, hole, inBay: false, z: baseBottom, reach: thickness };
 }
 
 /**
- * Diffuser disc + friction skirt inside the shade. The skirt's outer radius never exceeds the narrowest inner wall
- * between it and the rim it enters from, so the part can always be pushed in (see diffuserOuterRadius).
+ * Translucent inner wall (liner) standing on the hub (spider / fitter) or the base top, inside the shade with an air
+ * gap. Built at one constant radius — the narrowest shade inner wall between its seat and the rim, minus the gap — so
+ * it can never wedge while it is dropped in from above (or while the shade is lowered over it).
  */
-export interface DiffuserPlan {
-  position: 'bottom' | 'top';
-  /** disc slab, world z */
-  disc0: number;
-  disc1: number;
-  /** skirt band, world z (includes the disc slab) */
-  skirt0: number;
-  skirt1: number;
-  /** centre hole radius (bottom diffusers clear the cup), 0 = solid disc */
-  holeR: number;
-  /** extra radius the shade's inner wall has in the band (fitter seat groove) */
-  recess: number;
+export interface LinerPlan {
+  /** world z of the liner's bottom edge (its seat) */
+  seatZ: number;
+  /** world z of the liner's top edge (open) */
+  topZ: number;
+  /** constant outer radius the whole liner is built at */
+  outerR: number;
+  /** radius of the locating groove / rail centre at the seat (liner mid-wall at its foot) */
+  seatR: number;
 }
 
-/** Outer radius of a diffuser at height z / angle phi: narrowest inner wall between z and the entry rim, minus the gap. */
-export function diffuserOuterRadius(
-  layout: Pick<Layout, 'shade' | 'shadeBottom' | 'shadeTop'>,
-  d: DiffuserPlan,
-  clearance: number,
-  z: number,
-  phi: number,
-): number {
-  const S = layout.shade;
-  const H = Math.max(1e-6, S.height);
-  const a = d.position === 'top' ? z : layout.shadeBottom;
-  const b = d.position === 'top' ? layout.shadeTop : z;
+/** Locating features for the liner foot: rails on the hub top face, a groove in the base top. */
+export const LINER_RAIL_T = 1.6;
+export const LINER_RAIL_H = 2;
+/** Height of the stepped-in locating foot at the liner's bottom edge. */
+export const LINER_FOOT_H = 3;
+/** Depth of the liner groove cut into the base top (base / lip mounts). */
+export const LINER_GROOVE_DEPTH = 2.5;
+
+/** Hub outer diameter that holds the liner rails (spider / fitter mounts); the configured diameter if it is already enough. */
+function hubDiameterFor(p: LampParams, liner: LinerPlan | null): number {
+  const sh = p.shade;
+  if (!liner || (sh.mount !== 'spider' && sh.mount !== 'fitter')) return sh.hubOuterDiameter;
+  const need = 2 * (liner.seatR + Math.max(0.4, sh.diffuser.thickness) / 2 + sh.diffuser.seatClearance + LINER_RAIL_T) + 4;
+  return Math.max(sh.hubOuterDiameter, need);
+}
+
+/** Narrowest shade inner wall over t ∈ [t0, t1] and all angles. */
+function minInnerRadius(S: ShadeSurface, t0: number, t1: number): number {
   let r = Infinity;
-  for (let i = 0; i <= 12; i++) {
-    const t = Math.min(1, Math.max(0, (a + ((b - a) * i) / 12 - layout.shadeBottom) / H));
-    r = Math.min(r, S.innerRadius(t, phi));
-  }
-  return r + d.recess - Math.max(0, clearance);
+  const n = 12;
+  for (const phi of angles(72)) for (let i = 0; i <= n; i++) r = Math.min(r, S.innerRadius(t0 + ((t1 - t0) * i) / n, phi));
+  return r;
 }
 
-function diffuserPlan(p: LampParams, l: Omit<Layout, 'diffuser'>, issues: string[]): DiffuserPlan | null {
+function linerPlan(p: LampParams, l: Omit<Layout, 'liner' | 'hubOuterDiameter'>, issues: string[]): LinerPlan | null {
   const sh = p.shade;
   const df = sh.diffuser;
   if (df.position === 'none') return null;
   const t = Math.max(0.4, df.thickness);
-  const z0 = l.shadeBottom;
-  const z1 = l.shadeTop;
-  if (df.position === 'top') {
-    if (sh.topClosure !== 'open') {
-      issues.push('A top diffuser needs an open shade top — set the top closure to open, or move the diffuser to the bottom.');
-      return null;
-    }
-    const disc1 = z1 - Math.max(0, df.inset);
-    const disc0 = disc1 - t;
-    const skirt0 = Math.max(z0 + 1, disc1 - Math.max(t, df.skirtHeight));
-    if (disc0 <= z0 + 1 || disc0 < l.bulbTop + 5) {
-      issues.push('Top diffuser would sit on or below the bulb — reduce its inset or make the shade taller.');
-      return null;
-    }
-    return { position: 'top', disc0, disc1, skirt0, skirt1: disc1, holeR: 0, recess: 0 };
-  }
-  if (sh.mount !== 'spider' && sh.mount !== 'fitter') {
-    issues.push('A bottom diffuser hangs below the spider / fitter hub — base- and lip-mounted shades are already closed underneath.');
+  const seated = sh.mount === 'base' || sh.mount === 'lip';
+  if (!seated && sh.topClosure !== 'open') {
+    issues.push('A diffuser liner needs the open shade top — set the top closure to open.');
     return null;
   }
-  // annular disc below the hub, around the cup; the skirt rises toward (never into) the hub
-  const disc0 = z0 + Math.max(0, df.inset);
-  const disc1 = disc0 + t;
-  const skirt1 = Math.min(disc0 + Math.max(t, df.skirtHeight), l.hubBottom - 1);
-  if (skirt1 < disc1 + 2) {
-    issues.push(
-      `No room for a bottom diffuser under the hub — raise the shade mount height to ≥ ${(Math.max(0, df.inset) + t + 3).toFixed(1)} mm or use a top diffuser.`,
-    );
+  const seatZ = seated ? l.baseTop : l.hubBottom + l.hubThickness;
+  const H = Math.max(1e-6, l.shade.height);
+  const tSeat = Math.min(1, Math.max(0, (seatZ - l.shadeBottom) / H));
+  const topZ = Math.min(l.shadeTop - 5, seatZ + (df.height > 0 ? df.height : l.shadeTop - 10 - seatZ));
+  if (topZ - seatZ < 20) {
+    issues.push('No room for the diffuser liner under the shade top — make the shade taller.');
     return null;
   }
-  let cupR = 0;
-  for (const phi of angles(72)) cupR = Math.max(cupR, sectionRadius(p.cup.section, phi) * p.cup.size * Math.max(1, p.cup.topScale));
-  if (p.stem.height > 0 && disc0 < l.stemTop)
-    for (const phi of angles(72)) cupR = Math.max(cupR, sectionRadius(p.stem.section, phi) * p.stem.size * Math.max(1, p.stem.topScale));
-  const holeR = cupR + 1.5;
-  const recess = sh.mount === 'fitter' ? Math.min(1.6, Math.max(0.8, sh.wallThickness * 0.6)) : 0;
-  let innerMin = Infinity;
-  for (const phi of angles(72)) innerMin = Math.min(innerMin, l.shade.innerRadius(0, phi));
-  if (holeR > innerMin - 8) {
-    issues.push('Bottom diffuser would be a sliver: the cup is nearly as wide as the shade opening — widen the shade or use a top diffuser.');
+  const gap = Math.max(0, df.gap);
+  const outerR = minInnerRadius(l.shade, tSeat, 1) - gap;
+  // seated liners are placed first and the shade is lowered over them: the shade's lower part must pass the liner
+  if (seated && minInnerRadius(l.shade, 0, tSeat) < outerR + 0.2) {
+    issues.push('Shade narrows above the base top — the liner cannot pass; widen the shade or reduce the gap.');
     return null;
   }
-  return { position: 'bottom', disc0, disc1, skirt0: disc0, skirt1, holeR, recess };
+  // the foot is stepped in by half a wall, so its inner face is the closest part to the bulb
+  const innerR = outerR - 1.5 * t;
+  let bulbR = 0;
+  for (const [z, r] of l.bulbProfile) if (z >= seatZ && z <= topZ) bulbR = Math.max(bulbR, r);
+  if (innerR <= bulbR + 3) {
+    issues.push('The diffuser liner would touch the bulb — increase the gap or widen the shade.');
+    return null;
+  }
+  return { seatZ, topZ, outerR, seatR: outerR - t };
 }
 
 export interface Layout {
@@ -295,12 +508,14 @@ export interface Layout {
   issues: string[];
   /** base.legs ≥ 3: one axis per leg (printed or dowel), else empty */
   legs: LegAxis[];
-  /** splice-connector pockets under the base (hardware.wago.enabled), else empty */
-  wagos: WagoSlot[];
+  /** wiring bay in the base underside (hardware.wago.enabled), else null */
+  bay: WiringBay | null;
   /** screw-down cord clamp under the base (hardware.strainRelief.enabled), else null */
   clamp: StrainClamp | null;
   /** shade.diffuser.position ≠ 'none' and it fits, else null */
-  diffuser: DiffuserPlan | null;
+  liner: LinerPlan | null;
+  /** effective hub outer diameter: the configured one, grown to carry the liner rails when needed */
+  hubOuterDiameter: number;
 }
 
 export function bulbFor(p: LampParams): BulbShape {
@@ -492,30 +707,9 @@ export function computeLayout(p: LampParams): Layout {
   if (sh.mount === 'lip' && p.cup.size / 2 > surface.innerRadius(0, 0) - sh.baseGrooveClearance - 2.4)
     issues.push('Socket cup is wider than the lip opening — reduce the cup size or widen the shade.');
 
-  const wagos = wagoSlots(p, axisX, axisY);
-  if (hw.wago.enabled) {
-    if (wagos.length === 0)
-      issues.push(
-        `Base is too low for the ${hw.wago.model} pockets (needs ≥ ${(hw.wago.height + 2 * hw.wago.clearance + POCKET_ROOF).toFixed(1)} mm) — raise the base or disable the connector holders.`,
-      );
-    else if (p.base.shellWall > 0)
-      issues.push('Connector pockets need a solid base — set the hollow shell wall to 0 or disable the connector holders.');
-    else {
-      let inradius = Infinity;
-      for (const phi of angles(72)) inradius = Math.min(inradius, sectionRadius(p.base.section, phi) * p.base.size - p.base.bottomEdgeRadius);
-      const reach = Math.max(...wagos.map((s) => Math.hypot(s.x, s.y) + Math.hypot(s.lenAlong, s.lenAcross) / 2));
-      if (reach > inradius - 2)
-        issues.push('Connector pockets reach past the base edge — widen the base or disable the connector holders.');
-      const legged = p.base.legs >= 3;
-      if (!legged && p.base.weightPocketDiameter > 0) {
-        const near = Math.min(...wagos.map((s) => Math.hypot(s.x, s.y) - Math.hypot(s.lenAlong, s.lenAcross) / 2));
-        if (near < p.base.weightPocketDiameter / 2 + 1.6)
-          issues.push('Connector pockets overlap the weight pocket — shrink the weight pocket or disable the connector holders.');
-      }
-    }
-  }
-  const clamp = strainClamp(p, axisX, axisY, wagos, issues);
-  const base: Omit<Layout, 'diffuser'> = {
+  const bay = wiringBay(p, baseBottom, axisX, axisY, issues);
+  const clamp = strainClamp(p, baseBottom, axisX, axisY, bay, issues);
+  const base: Omit<Layout, 'liner' | 'hubOuterDiameter'> = {
     axisX,
     axisY,
     baseBottom,
@@ -540,8 +734,9 @@ export function computeLayout(p: LampParams): Layout {
     totalHeight: Math.max(shadeTop, bulbTop, socketTop),
     issues,
     legs,
-    wagos,
+    bay,
     clamp,
   };
-  return { ...base, diffuser: diffuserPlan(p, base, issues) };
+  const liner = linerPlan(p, base, issues);
+  return { ...base, liner, hubOuterDiameter: hubDiameterFor(p, liner) };
 }

@@ -16,6 +16,7 @@ import {
   HemisphereLight,
   Line,
   LineBasicMaterial,
+  LineSegments,
   LatheGeometry,
   Material,
   Mesh,
@@ -25,6 +26,8 @@ import {
   PerspectiveCamera,
   Plane,
   PointLight,
+  Points,
+  PointsMaterial,
   Scene,
   Sprite,
   SpriteMaterial,
@@ -39,6 +42,7 @@ import { DOWEL_MATERIALS } from '../model/hardware';
 import type { LampParams } from '../model/params';
 import type { LampView } from '../worker/messages';
 import { PART_COLORS, PART_ORDER } from './partColors';
+import { traceBeams } from './beams';
 import { ulEnvelope } from './ulEnvelope';
 
 export interface ViewOptions {
@@ -47,6 +51,8 @@ export interface ViewOptions {
   shadeTranslucent: boolean;
   showHardware: boolean;
   showUl: boolean;
+  /** ray-traced beams from the bulb to the shade (judge vertical bulb placement / evenness) */
+  showBeams: boolean;
   /** per-part visibility */
   visible: Record<PartId, boolean>;
 }
@@ -57,7 +63,8 @@ export const DEFAULT_VIEW_OPTIONS: ViewOptions = {
   shadeTranslucent: true,
   showHardware: true,
   showUl: false,
-  visible: { base: true, stem: true, cup: true, shade: true, fitter: true, diffuser: true, clamp: true },
+  showBeams: false,
+  visible: { base: true, stem: true, cup: true, shade: true, fitter: true, diffuser: true, clamp: true, cover: true },
 };
 
 /** Z gap between neighbouring parts in the exploded view, mm. */
@@ -69,7 +76,7 @@ const LABEL_COUNT = 4;
 
 function disposeTree(root: Object3D): void {
   root.traverse((o) => {
-    if (o instanceof Mesh || o instanceof Line) {
+    if (o instanceof Mesh || o instanceof Line || o instanceof Points) {
       o.geometry.dispose();
       const mat: Material | Material[] = o.material;
       for (const m of Array.isArray(mat) ? mat : [mat]) m.dispose();
@@ -128,6 +135,7 @@ export class LampViewer {
   private hardware: Group | null = null;
   private ul: Group | null = null;
   private baseHardware: Group | null = null;
+  private beams: Group | null = null;
   private shadeMaterials: MeshStandardMaterial[] = [];
   private options: ViewOptions = DEFAULT_VIEW_OPTIONS;
   private framed = false;
@@ -220,12 +228,14 @@ export class LampViewer {
     this.shadeMaterials = [];
     this.hardware = null;
     this.ul = null;
+    this.beams = null;
     this.baseHardware = null;
     if (build && params) {
       this.content = new Group();
       this.buildParts(build);
       this.buildHardware(build, params);
       this.buildUl(build, params);
+      this.buildBeams(build, params);
       this.scene.add(this.content);
       this.axis.set(build.layout.axisX, build.layout.axisY, 0);
       this.clipPlane.constant = -build.layout.axisY;
@@ -370,15 +380,41 @@ export class LampViewer {
         baseHardware.add(mesh);
       }
     }
-    if (L.wagos.length > 0) {
-      const clear = new MeshStandardMaterial({ color: 0xd8e4ee, roughness: 0.2, transparent: true, opacity: 0.75, clippingPlanes: [] });
-      const c = 2 * params.hardware.wago.clearance;
-      for (const s of L.wagos) {
-        const h = s.depth - c;
-        const mesh = new Mesh(new BoxGeometry(s.lenAlong - c, s.lenAcross - c, h), clear);
-        mesh.rotation.z = Math.atan2(s.along[1], s.along[0]);
-        mesh.position.set(s.x, s.y, L.baseBottom + h / 2);
+    if (L.bay) {
+      const w = params.hardware.wago;
+      const body = new MeshStandardMaterial({ color: 0xd8e4ee, roughness: 0.2, transparent: true, opacity: 0.8, clippingPlanes: [] });
+      const lever = new MeshStandardMaterial({ color: 0xf08a24, roughness: 0.5, clippingPlanes: [] });
+      const c = Math.max(0, w.clearance);
+      const zCeil = L.baseBottom + L.bay.depth;
+      for (const s of L.bay.sleeves) {
+        const yaw = Math.atan2(s.along[1], s.along[0]);
+        // connector pushed against the end stop at the lamp-centre end of the sleeve, hanging from the ceiling
+        const la = -s.len / 2 + c + w.depth / 2;
+        const cx = s.x + s.along[0] * la;
+        const cy = s.y + s.along[1] * la;
+        const zTop = zCeil - c;
+        const mesh = new Mesh(new BoxGeometry(w.depth, w.width, w.height), body);
+        mesh.rotation.z = yaw;
+        mesh.position.set(cx, cy, zTop - w.height / 2);
         baseHardware.add(mesh);
+        // lever: the orange tab on the connector's underside, facing the cover
+        const tab = new Mesh(new BoxGeometry(w.depth * 0.45, w.width * 0.6, 1.6), lever);
+        tab.rotation.z = yaw;
+        tab.position.set(cx, cy, zTop - w.height - 0.8);
+        baseHardware.add(tab);
+      }
+    }
+    if (params.hardware.fastening === 'insert' && (L.bay || L.clamp)) {
+      const ins = params.hardware.insert;
+      const brass = new MeshStandardMaterial({ color: 0xc9a227, metalness: 0.8, roughness: 0.35, clippingPlanes: [] });
+      const seat = (x: number, y: number, zMouth: number): void => {
+        baseHardware.add(new Mesh(zCylinder(ins.outerDiameter / 2, zMouth, zMouth + ins.length, x, y, 24), brass));
+      };
+      if (L.bay) for (const s of L.bay.screws) seat(s.x, s.y, L.baseBottom + L.bay.coverThickness);
+      if (L.clamp) {
+        const c = L.clamp;
+        const across: [number, number] = [-c.along[1], c.along[0]];
+        for (const side of [-1, 1]) seat(c.x + across[0] * c.screwOffset * side, c.y + across[1] * c.screwOffset * side, c.z + c.reach);
       }
     }
     if (baseHardware.children.length > 0) {
@@ -414,6 +450,37 @@ export class LampViewer {
     this.content?.add(group);
   }
 
+  /** 96 ray-traced beams from the bulb to the shade / base / table, plus a point at each landing. */
+  private buildBeams(build: LampView, params: LampParams): void {
+    const trace = traceBeams(build.layout, params);
+    const [ox, oy, oz] = trace.origin;
+    const segs = new Float32Array(trace.hits.length * 6);
+    const pts: number[] = [];
+    trace.hits.forEach(([x, y, z], i) => {
+      segs.set([ox, oy, oz, x, y, z], i * 6);
+      if (trace.landed[i]) pts.push(x, y, z);
+    });
+    const group = new Group();
+    const lineGeo = new BufferGeometry();
+    lineGeo.setAttribute('position', new BufferAttribute(segs, 3));
+    const lines = new LineSegments(
+      lineGeo,
+      new LineBasicMaterial({ color: 0xffcf7a, transparent: true, opacity: 0.55, depthTest: false }),
+    );
+    lines.renderOrder = 9;
+    group.add(lines);
+    const pointGeo = new BufferGeometry();
+    pointGeo.setAttribute('position', new BufferAttribute(new Float32Array(pts), 3));
+    const points = new Points(
+      pointGeo,
+      new PointsMaterial({ color: 0xffe9b0, size: 4, sizeAttenuation: false, depthTest: false }),
+    );
+    points.renderOrder = 9;
+    group.add(points);
+    this.beams = group;
+    this.content?.add(group);
+  }
+
   private applyOptions(): void {
     const o = this.options;
     const planes = o.sectionCut ? [this.clipPlane] : [];
@@ -432,7 +499,7 @@ export class LampViewer {
       mat.needsUpdate = true;
     }
 
-    for (const group of [this.hardware, this.ul, this.baseHardware]) {
+    for (const group of [this.hardware, this.ul, this.baseHardware, this.beams]) {
       if (!group) continue;
       group.position.z = group === this.baseHardware ? explodeOf('base') : explodeOf('cup');
       group.traverse((child) => {
@@ -447,6 +514,7 @@ export class LampViewer {
     if (this.hardware) this.hardware.visible = o.showHardware;
     if (this.baseHardware) this.baseHardware.visible = o.showHardware && o.visible.base;
     if (this.ul) this.ul.visible = o.showUl;
+    if (this.beams) this.beams.visible = o.showBeams && o.showHardware;
   }
 
   private resize(): void {

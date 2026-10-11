@@ -66,3 +66,49 @@ describe('shade inner wall', () => {
     }
   });
 });
+
+describe('diffuser liner', () => {
+  let m: ManifoldToplevel;
+  beforeAll(async () => {
+    m = await loadManifold();
+  });
+
+  it('is a constant-radius tube inside the shade band, between its seat and top', () => {
+    const p = structuredClone(DEFAULT_PARAMS);
+    p.shade.mount = 'spider';
+    p.shade.topClosure = 'open';
+    p.shade.diffuser.position = 'liner';
+    const layout = computeLayout(p);
+    expect(layout.liner).not.toBeNull();
+    const liner = layout.liner!;
+    const part = buildShadeParts(m, p, layout).find((s) => s.id === 'diffuser');
+    expect(part).toBeDefined();
+    expect(part!.solid.status()).toBe('NoError');
+    // the narrowest shade wall over the liner's band bounds the liner from outside
+    let minInner = Infinity;
+    for (let i = 0; i <= 24; i++)
+      for (let k = 0; k < 72; k++)
+        minInner = Math.min(minInner, layout.shade.innerRadius((i / 24), (k / 72) * Math.PI * 2));
+    const t = p.shade.diffuser.thickness;
+    const { positions } = toArrays(part!.solid);
+    let rMax = 0;
+    let rMin = Infinity;
+    let zMin = Infinity;
+    let zMax = -Infinity;
+    for (let i = 0; i < positions.length; i += 3) {
+      const r = Math.hypot(positions[i] - layout.axisX, positions[i + 1] - layout.axisY);
+      rMax = Math.max(rMax, r);
+      rMin = Math.min(rMin, r);
+      zMin = Math.min(zMin, positions[i + 2]);
+      zMax = Math.max(zMax, positions[i + 2]);
+    }
+    // mesh positions are float32: ~1e-5 mm resolution at these radii
+    const eps = 1e-4;
+    expect(rMax).toBeLessThanOrEqual(minInner - p.shade.diffuser.gap + eps);
+    expect(rMax).toBeCloseTo(liner.outerR, 3);
+    // the stepped-in foot is the thinnest part of the radial span: half a wall inboard
+    expect(rMin).toBeGreaterThanOrEqual(liner.outerR - 1.5 * t - eps);
+    expect(zMin).toBeGreaterThanOrEqual(liner.seatZ - eps);
+    expect(zMax).toBeLessThanOrEqual(liner.topZ + eps);
+  });
+});

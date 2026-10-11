@@ -13,6 +13,7 @@ const TOGGLES: Array<{ key: BoolOption; label: string; title: string }> = [
   { key: 'shadeTranslucent', label: 'Translucent shade', title: 'Show the bulb through the shade' },
   { key: 'showHardware', label: 'Socket & bulb', title: 'Socket, shade ring and glowing bulb' },
   { key: 'showUl', label: 'UL spacing', title: 'UL 153 lamp centerline and minimum-spacing envelope (assumes open/open shade)' },
+  { key: 'showBeams', label: 'Light rays', title: 'Ray-traced beams from the bulb to the shade — check vertical bulb placement for even lighting' },
 ];
 
 export interface ViewerPaneProps {

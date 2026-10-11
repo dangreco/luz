@@ -21,10 +21,12 @@ Build a static, browser-only (Vite + React + TypeScript) parametric table-lamp g
    for bought wooden dowels / metal rods (measured diameter + diametral clearance, insertion depth,
    sleeve wall); the tool reports the dowel cut length and mitre angle and adds the rod weight to the
    stability check.
-   Optional bought-part fittings: **pockets for two 2-conductor WAGO splice connectors** under the base, and
-   a **screw-down cord clamp** (printed bar + two self-tapping screws) across the base cord channel.
-   Optional **diffuser**: a separate disc (top, or annular bottom under a spider/fitter hub) with a
-   friction skirt, printed in translucent or white filament.
+   Optional bought-part fittings: a kettle-style **wiring bay** in the base underside, closed by a screwed-on
+   **cover plate**, with slide-in sleeves for two 2-conductor WAGO splice connectors on its ceiling (levers
+   facing the cover), and a **screw-down cord clamp** (printed bar + two self-tapping screws) inside the bay or
+   across the base cord channel.
+   Optional **diffuser liner**: a translucent inner wall standing on the hub or base top inside the shade
+   with an air gap, printed in translucent or white filament.
 3. **Shapes**: base, stem, cup and shade cross-sections can be circle, regular polygon (3+ sides, so
    triangle/square/hex…) with corner rounding, or superellipse; with aspect ratio and rotation. The shade's
    top and bottom sections can differ and are morphed along the height.
@@ -63,7 +65,10 @@ Thread diameters and ring sizes vary by vendor → **all socket dimensions are e
 | Rating | 660 W / 250 V | 75 W / 125 V | B&P, Paxton |
 
 The cup plate (plus the spider/fitter hub, which sits under the face) is the panel: the layout fails if its
-thickness is outside the grip range. The cavity clears the body and the spread wings.
+thickness is outside the grip range. The cavity clears the body and the spread wings. Two printed
+**anti-rotation lugs** at ±90° intrude into the hole (cylinder-minus-box cutter; 45° lead-in on the upper
+0.8 mm) so the socket cams over them on insertion and cannot spin when a bulb is screwed in; skipped when the
+body nearly fills the hole.
 
 ### Splice connectors (WAGO, UL 486C)
 
@@ -73,9 +78,17 @@ thickness is outside the grip range. The cavity clears the body and the spread w
 | 2273-202 push-wire | 10 × 5.8 × 16.7 | **solid** 18–14 AWG only | T60 | WAGO data sheet 2273-202 |
 
 Cord-set and socket leads are stranded, so 221-412 is the default and the tool warns on 2273-202. Strip
-11 mm. Pockets open on the base underside (connector standing wire-entries down when the base is tall
-enough, else lying flat), with 0.2 mm/side clearance, two crush ribs (the lamp gets lifted) and a wire slot
-to the cord bore. Solid bases only.
+11 mm.
+
+**Wiring bay** (kettle-style service bay): a round cavity in the base underside closed by a **screwed-on
+cover plate** (3 self-tapping screws into Ø0.8·d pilots in bosses on the bay ceiling; the cover also carries
+the felt-pad recesses). Two **slide-in sleeves** are molded on the ceiling either side of the cord line —
+U-channels with side walls, an end stop at the lamp-centre end and two 0.3 mm crush ribs — open at the outer
+end and open downward: slide each connector in toward the centre, **levers down**, so they are fully exposed
+(the lever window) with the cover off. The cord enters through an oval exit in the bay wall, hugging the
+ceiling; with the cord clamp enabled the bar lives inside the bay between the exit and the sleeves, screwed up
+into the ceiling. Solid bases only; no weight pocket (they share the underside). Layout issues report a base
+too low (≥ connector height + cover + ceiling) or too small for the bay.
 
 ### Cord strain relief
 
@@ -84,12 +97,27 @@ relief; OSHA 29 CFR 1926.405(g)(2)(iv)). Option: a printed bar in a flush recess
 channel, ridges squeezing the jacket ≈ 0.8 mm, two self-tapping screws in Ø0.8·d pilots ≥ 2.5·d deep.
 An Underwriters knot inside the socket is recommended either way.
 
-### Diffusers
+### Diffuser liner
 
-Separate part, friction skirt following the shade's inner wall minus 0.3 mm/side (never wider than the
-narrowest wall between it and the rim it enters from). Print 0.8–1.6 mm, 1–2 perimeters, no infill. A
-diffuser **closes the opening it spans** for UL 153: bottom → Table 47.3, top → Table 47.4 (its underside is
-the cap); the heat screening checks it against its own material's HDT.
+A translucent **inner wall** (liner), not a lid: a constant-radius open tube that stands on the spider/fitter
+hub (two 2 mm locating rails on the hub top face; the hub grows to fit them) or in a groove in the base top
+(base/lip mounts, placed before the shade is lowered over it), with a 3 mm foot stepped in by half a wall that
+drops between the rails. Its outer radius is the narrowest shade inner wall between its seat and the rim minus
+the air gap (default 5 mm), so it never wedges; height defaults to shade top − 10 mm. Print 0.8–1.6 mm,
+1–2 perimeters, no infill, foot on the bed. Spider/fitter mounts need the open shade top (the liner drops in
+from above).
+
+UL 153: the liner **does not close any opening** — the designation is unchanged and the openings stay open.
+Spacing is measured to the liner wall as well (the centerline clearance takes the nearest of liner, shade wall,
+cap and hub plane), and the heat screening checks the liner foot — the part nearest the bulb — against its own
+material's HDT.
+
+### Light-ray overlay
+
+Viewer toggle "Light rays": 96 golden-spiral rays from the bulb's luminous centroid, marched in 2 mm steps (last
+step bisected) against the shade's nominal inner wall, the top cap (closed/vented tops), the base top and the
+table, with a point at each landing. Rays that leave through an open top end at 800 mm. The liner and hub do
+not stop rays. Use it to judge vertical bulb placement: even lighting ≈ landings spread evenly over the wall.
 
 ### Lamp-to-shade spacing — UL 153 / CSA C22.2 No. 12 (bi-national "Portable Luminaires")
 

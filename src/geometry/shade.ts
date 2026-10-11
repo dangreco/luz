@@ -1,4 +1,4 @@
-import { diffuserOuterRadius, type DiffuserPlan, type Layout } from '../model/layout';
+import { LINER_FOOT_H, LINER_GROOVE_DEPTH, LINER_RAIL_H, LINER_RAIL_T, type LinerPlan, type Layout } from '../model/layout';
 import { MATERIALS } from '../model/hardware';
 import type { LampParams, ShadeParams } from '../model/params';
 import type { ShadeSurface } from '../model/shadeSurface';
@@ -103,7 +103,7 @@ export function buildShadeParts(m: ManifoldToplevel, p: LampParams, layout: Layo
   if (sh.vaseMode && !vase) notes.push(`Vase mode ignored: ${vaseBlockers.join('; ')}.`);
 
   // --- spider spoke ends (solved per spoke direction, so non-round shades are reached exactly) ---
-  const hubR = sh.hubOuterDiameter / 2;
+  const hubR = layout.hubOuterDiameter / 2;
   const riseRad = clamp(sh.spokeRise, 0, 80) * (Math.PI / 180);
   // the spoke's square end is tilted by the rise, so its lower corner reaches thickness/2·sin(rise) further
   // out than the centreline end point: pull the end in by that so the bite never pierces the outer wall
@@ -279,12 +279,25 @@ export function buildShadeParts(m: ManifoldToplevel, p: LampParams, layout: Layo
 
   // --- integrated spider: hub + spokes merged into the wall ---
   const hubSolid = (): Manifold => {
-    const seg = Math.max(48, Math.ceil(sh.hubOuterDiameter * 6));
+    const seg = Math.max(48, Math.ceil(layout.hubOuterDiameter * 6));
     const ring = m.Manifold.cylinder(sh.hubThickness, hubR, hubR, seg).translate(axisX, axisY, layout.hubBottom);
     const hole = m.Manifold
       .cylinder(sh.hubThickness + 2, layout.hubHoleDiameter / 2, layout.hubHoleDiameter / 2, 48)
       .translate(axisX, axisY, layout.hubBottom - 1);
-    return ring.subtract(hole);
+    let hub = ring.subtract(hole);
+    const liner = layout.liner;
+    if (liner) {
+      // two concentric rails on the hub top face locate the liner foot
+      const half = Math.max(0.4, sh.diffuser.thickness) / 2 + sh.diffuser.seatClearance;
+      const zA = liner.seatZ - 0.01;
+      const zB = liner.seatZ + LINER_RAIL_H;
+      const rails = [
+        constTube(m, axisX, axisY, phis, liner.seatR + half + LINER_RAIL_T, liner.seatR + half, zA, zB),
+        constTube(m, axisX, axisY, phis, liner.seatR - half, liner.seatR - half - LINER_RAIL_T, zA, zB),
+      ];
+      hub = m.Manifold.union([hub, ...rails]);
+    }
+    return hub;
   };
   /** One tilted box per spoke from inside the hub to its own end point (radius, height). */
   const spokes = (ends: Array<{ phi: number; r: number; z: number }>): Manifold[] => {
@@ -373,59 +386,59 @@ export function buildShadeParts(m: ManifoldToplevel, p: LampParams, layout: Layo
       ],
     });
   }
-  if (layout.diffuser) parts.push(buildDiffuser(m, p, layout, layout.diffuser, phis));
+  if (layout.liner) parts.push(buildLiner(m, p, layout, layout.liner, phis));
   return parts;
 }
 
-/** Rings per mm of skirt height for the diffuser loft. */
-const DIFFUSER_RING_STEP = 1;
+/** Tube of constant inner/outer radius about (ax, ay) between z = zA and zB, sampled at `phis`. */
+function constTube(
+  m: ManifoldToplevel,
+  ax: number,
+  ay: number,
+  phis: Float64Array,
+  rOuter: number,
+  rInner: number,
+  zA: number,
+  zB: number,
+): Manifold {
+  const ring = (r: number, z: number): Vec3[] =>
+    Array.from(phis, (phi) => [ax + r * Math.cos(phi), ay + r * Math.sin(phi), z] as Vec3);
+  return loftTube(m, [ring(rOuter, zA), ring(rOuter, zB)], [ring(rInner, zA), ring(rInner, zB)]);
+}
 
 /**
- * Diffuser: a disc across the bottom (annular, around the cup) or top opening, plus a skirt that sleeves inside the
- * shade wall and holds it by friction. The outer surface follows the shade's inner wall minus the clearance, never
- * wider than the narrowest wall between it and the rim it enters from, so it always pushes in.
+ * Diffuser liner: a constant-radius translucent tube standing on the hub rails (spider / fitter) or in the base-top
+ * groove, with a 3 mm foot stepped in by half a wall that drops between the rails. It never touches the shade, so
+ * light leaves through liner + shade wall together and every shade opening stays open.
  */
-function buildDiffuser(m: ManifoldToplevel, p: LampParams, layout: Layout, d: DiffuserPlan, phis: Float64Array): SolidPart {
+function buildLiner(m: ManifoldToplevel, p: LampParams, layout: Layout, l: LinerPlan, phis: Float64Array): SolidPart {
   const df = p.shade.diffuser;
   const ax = layout.axisX;
   const ay = layout.axisY;
   const t = Math.max(0.4, df.thickness);
-  const nz = Math.max(2, Math.ceil((d.skirt1 - d.skirt0) / DIFFUSER_RING_STEP) + 1);
-  const zs = Array.from({ length: nz }, (_, i) => d.skirt0 + ((d.skirt1 - d.skirt0) * i) / (nz - 1));
-  const outerR = zs.map((z) => Array.from(phis, (phi) => diffuserOuterRadius(layout, d, df.clearance, z, phi)));
-  const ring = (radii: number[], z: number): Vec3[] =>
-    radii.map((r, k) => [ax + r * Math.cos(phis[k]), ay + r * Math.sin(phis[k]), z] as Vec3);
-  const outer = zs.map((z, i) => ring(outerR[i], z));
-  const inner = zs.map((z, i) => ring(outerR[i].map((r) => Math.max(0.5, r - t)), z));
-  const skirt = loftTube(m, outer, inner);
-  // disc: one slab at the disc band, radius = the skirt's outer radius there
-  const iDisc = d.position === 'top' ? nz - 1 : 0;
-  const discR = outerR[iDisc].map((r) => r - t / 2);
-  const disc = loftSolid(m, [ring(discR, d.disc0), ring(discR, d.disc1)]);
-  let body = m.Manifold.union([skirt, disc]);
-  skirt.delete();
-  disc.delete();
-  if (d.holeR > 0) {
-    const hole = m.Manifold.cylinder(d.disc1 - d.disc0 + 2, d.holeR, d.holeR, 96).translate(ax, ay, d.disc0 - 1);
-    body = body.subtract(hole);
-    hole.delete();
-  }
+  const seated = p.shade.mount === 'base' || p.shade.mount === 'lip';
+  // base-seated liners sink their foot into the groove in the base top; hub-seated ones stand on the rails
+  const footZ = seated ? l.seatZ - LINER_GROOVE_DEPTH : l.seatZ;
+  const wall = constTube(m, ax, ay, phis, l.outerR, l.outerR - t, footZ + LINER_FOOT_H, l.topZ);
+  const foot = constTube(m, ax, ay, phis, l.seatR + t / 2, l.seatR - t / 2, footZ, footZ + LINER_FOOT_H + 0.5);
+  const body = m.Manifold.union([wall, foot]);
+  wall.delete();
+  foot.delete();
   const mat = MATERIALS[p.materials.diffuser];
   return {
     id: 'diffuser',
-    label: d.position === 'top' ? 'Diffuser (top)' : 'Diffuser (bottom)',
+    label: 'Diffuser liner',
     solid: body,
-    // print disc-down: the top diffuser's disc is its upper face in the lamp
-    printFlip: d.position === 'top',
+    printFlip: false,
     notes: [
-      `${t.toFixed(1)} mm disc + ${(d.skirt1 - d.skirt0).toFixed(1)} mm skirt, ${df.clearance.toFixed(1)} mm/side clearance inside the shade` +
-        (d.holeR > 0 ? `; Ø${(2 * d.holeR).toFixed(1)} mm centre hole clears the cup and stem.` : '.') +
-        ` Push it in from the ${d.position} rim; the skirt holds it by friction.`,
-      `Print in natural/translucent or white ${mat.label}: 1–2 perimeters, 0 % infill, no top/bottom texture — ` +
-        'thin, uniform walls diffuse evenly; ≥ 2 mm or infill patterns show as dark lines. Disc on the bed.',
-      d.position === 'bottom'
-        ? 'Closes the bottom opening: UL 153 designation becomes closed-bottom (Table 47.3 spacing).'
-        : 'Closes the top opening: UL 153 designation becomes closed-top (Table 47.4 spacing) — or closed/closed (≤ 7 W) with a seated bottom.',
+      `${t.toFixed(1)} mm wall, Ø${(2 * l.outerR).toFixed(1)} mm outside, ${df.gap.toFixed(1)} mm air gap to the shade, ` +
+        `${(l.topZ - l.seatZ).toFixed(0)} mm tall. ` +
+        (seated
+          ? 'Stand the liner in the base-top groove, then lower the shade over it.'
+          : 'Drop it in from the open shade top so its foot sits between the hub rails.'),
+      `Print in natural/translucent or white ${mat.label}: 1–2 perimeters, 0 % infill — thin, uniform walls diffuse ` +
+        'evenly. Foot on the bed.',
+      'Light passes through the liner and the shade wall together; the shade openings stay open for UL 153.',
     ],
   };
 }

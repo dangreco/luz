@@ -54,6 +54,8 @@ export interface SocketSpec {
   /** snap-in: panel thickness range the clips grip */
   gripMin: number;
   gripMax: number;
+  /** snap-in: two printed lugs in the panel hole key the socket against rotation while a bulb is screwed in */
+  antiRotate: boolean;
 }
 
 export interface HardwareParams {
@@ -75,30 +77,50 @@ export interface HardwareParams {
   prewiredCord: boolean;
   plugWidth: number;
   plugThickness: number;
-  /** optional printed pockets under the base for the splice connectors joining cord and socket leads */
+  /** optional service bay in the base underside (screwed cover plate) holding the splice connectors */
   wago: WagoParams;
   /** optional screw-down cord clamp under the base, at the cord exit */
   strainRelief: StrainReliefParams;
+  /** how the base's service screws (bay cover, cord clamp) hold */
+  fastening: Fastening;
+  /** heat-set insert used in 'insert' mode */
+  insert: InsertSpec;
+}
+
+/** how the base's service screws (bay cover, cord clamp) hold: brass heat-set inserts or self-tapping into pilots */
+export type Fastening = 'insert' | 'selfTap';
+
+/** heat-set insert for M3 screws; defaults = Voron-spec M3×5×4 */
+export interface InsertSpec {
+  /** knurl outer diameter (D1) */
+  outerDiameter: number;
+  length: number;
+  /** modeled (CAD) bore; printed holes shrink ≈ 0.2–0.3 mm, so this sits above the 4.4 mm datasheet value */
+  holeDiameter: number;
+  /** 45° lead-in at the hole mouth */
+  chamfer: number;
 }
 
 /** 2-conductor WAGO splice connectors (see WAGO_CONNECTORS in hardware.ts). */
 export type WagoModel = '221-412' | '2273-202';
 
 export interface WagoParams {
-  /** two pockets (one per conductor) under the base, either side of the cord bore */
+  /** service bay in the base underside with a screwed cover plate and slide-in connector sleeves on its ceiling */
   enabled: boolean;
   model: WagoModel;
   /** connector body (measure yours): width across the conductor entries, height (levers closed), depth along the wires */
   width: number;
   height: number;
   depth: number;
-  /** gap added on every side of the pocket (≈ 0.1 snug press fit … 0.3 loose drop-in) */
+  /** slide fit of the connector in its sleeve, per side (≈ 0.15 snug … 0.35 loose) */
   clearance: number;
+  /** self-tapping screws for the cover plate (M3 / #4 = 3); self-tapping mode only (inserts are always M3) */
+  coverScrewDiameter: number;
 }
 
 export interface StrainReliefParams {
   enabled: boolean;
-  /** nominal screw size for the two self-tapping screws (M3 / #4 ≈ 3) */
+  /** nominal screw size for the two self-tapping screws (M3 / #4 ≈ 3); self-tapping mode only (inserts are always M3) */
   screwDiameter: number;
   /** how much the clamp bar compresses the cord's thickness */
   squeeze: number;
@@ -354,26 +376,25 @@ export interface ShadeParams {
   /** slicer line width used as the wall thickness in vase mode */
   vaseLineWidth: number;
 
-  /** optional separate diffuser (printed translucent / white) covering the bottom or top opening */
+  /** optional translucent inner wall (liner) that softens the light through the shade wall */
   diffuser: DiffuserParams;
 }
 
 /**
- * bottom: annular disc across the bottom opening (hole around the stem / cup), skirt rising into the shade.
- * top: full disc across the top opening, skirt hanging down into the shade.
+ * liner: translucent tube standing on the hub (spider / fitter) or the base top, inside the shade with an air gap.
  */
-export type DiffuserPosition = 'none' | 'bottom' | 'top';
+export type DiffuserPosition = 'none' | 'liner';
 
 export interface DiffuserParams {
   position: DiffuserPosition;
-  /** disc and skirt wall; 0.8–1.6 mm passes plenty of light in natural PETG / white PLA */
+  /** liner wall thickness, 0.8–1.6 mm passes plenty of light in natural PETG / white PLA */
   thickness: number;
-  /** skirt that sleeves inside the shade rim and holds the diffuser by friction */
-  skirtHeight: number;
-  /** gap per side between the skirt and the shade's inner wall */
-  clearance: number;
-  /** distance of the disc's outer face from the shade rim, inward */
-  inset: number;
+  /** air gap between the liner's outer wall and the shade's inner wall */
+  gap: number;
+  /** liner height above its seat; 0 = auto (shade top − 10 mm) */
+  height: number;
+  /** diametral clearance of the liner's seat in the hub-rail / base groove */
+  seatClearance: number;
 }
 
 export interface MaterialsParams {
@@ -427,6 +448,7 @@ export const DEFAULT_PARAMS: LampParams = {
       clipReach: 43,
       gripMin: 0.8,
       gripMax: 2.4,
+      antiRotate: true,
     },
     nippleDiameter: 10.29,
     nutAcrossFlats: 12.7,
@@ -436,8 +458,10 @@ export const DEFAULT_PARAMS: LampParams = {
     prewiredCord: false,
     plugWidth: 22,
     plugThickness: 16,
-    wago: { enabled: false, model: '221-412', width: 13.2, height: 8.4, depth: 18.8, clearance: 0.2 },
+    wago: { enabled: false, model: '221-412', width: 13.2, height: 8.4, depth: 18.8, clearance: 0.25, coverScrewDiameter: 3 },
     strainRelief: { enabled: false, screwDiameter: 3, squeeze: 0.8 },
+    fastening: 'insert',
+    insert: { outerDiameter: 5.0, length: 4.0, holeDiameter: 4.6, chamfer: 0.5 },
   },
   bulb: {
     shape: 'A19',
@@ -562,7 +586,7 @@ export const DEFAULT_PARAMS: LampParams = {
     basketRim: 8,
     vaseMode: false,
     vaseLineWidth: 0.8,
-    diffuser: { position: 'none', thickness: 1.2, skirtHeight: 10, clearance: 0.3, inset: 0 },
+    diffuser: { position: 'none', thickness: 1.2, gap: 5, height: 0, seatClearance: 0.4 },
   },
   materials: { shade: 'PETG', structure: 'PETG', diffuser: 'PETG', heatMargin: 10, ambient: 25 },
   quality: { radialSegments: 192, ringsPer10mm: 4 },
