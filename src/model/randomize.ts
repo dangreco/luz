@@ -111,6 +111,7 @@ function randomSurface(r: Rng, p: LampParams): void {
     s.perfElongation = round(range(r, 1.5, 3.5), 0.1);
     s.perfMargin = round(range(r, 10, 18));
     s.perfSeed = int(r, 0, 9999);
+    s.perfProtrusion = s.perfPattern === 'voronoi' && chance(r, 0.4) ? round(range(r, 1, 4), 0.2) : 0;
     s.perfStagger = chance(r, 0.7);
     s.wallThickness = Math.max(s.wallThickness, 1.8);
   } else if (roll < 0.85) {

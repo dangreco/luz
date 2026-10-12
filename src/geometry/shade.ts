@@ -223,8 +223,9 @@ export function buildShadeParts(m: ManifoldToplevel, p: LampParams, layout: Layo
     if (hasFitter) perfLo = Math.max(perfLo, lipZ + Math.max(3, sh.perfSpacing));
     const perfHi = z1 - sh.perfMargin;
     if (perfHi - perfLo > sh.perfSize * 0.8) {
-      const cutter = perfCutters(m, sh, S, axisX, axisY, z0, perfLo, perfHi);
-      if (cutter) body = body.subtract(cutter);
+      const { cut, raise } = perfCutters(m, sh, S, axisX, axisY, z0, perfLo, perfHi);
+      if (raise) body = body.add(raise);
+      if (cut) body = body.subtract(cut);
     } else {
       notes.push('Perforation skipped: the rim margins and mount keep-out leave no room for holes.');
     }

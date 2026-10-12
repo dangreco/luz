@@ -348,6 +348,8 @@ export interface ShadeParams {
   perfMargin: number;
   /** voronoi seed */
   perfSeed: number;
+  /** voronoi: max outward protrusion of each cell's tile, random per cell (0 = flat), mm */
+  perfProtrusion: number;
   /** stagger alternate rows */
   perfStagger: boolean;
 
@@ -572,6 +574,7 @@ export const DEFAULT_PARAMS: LampParams = {
     perfElongation: 3,
     perfMargin: 12,
     perfSeed: 7,
+    perfProtrusion: 0,
     perfStagger: true,
     texture: { pattern: 'knit', columns: 64, rows: 70, depth: 1.2, twist: 0 },
     bottomRounding: 0,

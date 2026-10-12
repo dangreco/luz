@@ -4,7 +4,7 @@ import { DEFAULT_PARAMS, type LampParams } from '../model/params';
 import { toArrays } from './mesh';
 import { buildShadeParts } from './shade';
 import { loadManifold } from './wasm';
-import type { ManifoldToplevel } from './wasm';
+import type { Manifold, ManifoldToplevel } from './wasm';
 
 /**
  * Regression guard for the invariant the whole safety stack relies on: whatever the
@@ -110,5 +110,83 @@ describe('diffuser liner', () => {
     expect(rMin).toBeGreaterThanOrEqual(liner.outerR - 1.5 * t - eps);
     expect(zMin).toBeGreaterThanOrEqual(liner.seatZ - eps);
     expect(zMax).toBeLessThanOrEqual(liner.topZ + eps);
+  });
+});
+
+describe('voronoi perforation', () => {
+  let m: ManifoldToplevel;
+  beforeAll(async () => {
+    m = await loadManifold();
+  });
+
+  const occupancy = (solid: Manifold, c: [number, number, number], half = 0.3): number => {
+    const probe = m.Manifold.cube([2 * half, 2 * half, 2 * half], true).translate(c);
+    const v = solid.intersect(probe).volume();
+    probe.delete();
+    return v;
+  };
+
+  it('leaves closed solid rims of perfMargin at the bottom and top', () => {
+    for (const seed of [7, 1, 42]) {
+      const p = structuredClone(DEFAULT_PARAMS);
+      p.shade.style = 'perforated';
+      p.shade.perfPattern = 'voronoi';
+      p.shade.perfSeed = seed;
+      p.shade.topClosure = 'open';
+      p.shade.mount = 'spider';
+      const layout = computeLayout(p);
+      const [shade] = buildShadeParts(m, p, layout);
+      expect(shade.solid.status()).toBe('NoError');
+      const S = layout.shade;
+      const rims = [
+        ['bottom', layout.shadeBottom + p.shade.perfMargin / 2],
+        ['top', layout.shadeTop - p.shade.perfMargin / 2],
+      ] as const;
+      for (const [label, z] of rims) {
+        const t = (z - layout.shadeBottom) / S.height;
+        for (let k = 0; k < 120; k++) {
+          const phi = (k / 120) * Math.PI * 2;
+          const r = (S.innerRadius(t, phi) + S.outerRadius(t, phi)) / 2;
+          const v = occupancy(shade.solid, [layout.axisX + r * Math.cos(phi), layout.axisY + r * Math.sin(phi), z]);
+          expect(v, `seed ${seed} ${label} rim open at ${phi.toFixed(2)}`).toBeGreaterThan(0);
+        }
+      }
+      // the lattice actually cut something
+      const smooth = structuredClone(p);
+      smooth.shade.style = 'smooth';
+      const [plain] = buildShadeParts(m, smooth, computeLayout(smooth));
+      expect(shade.solid.volume()).toBeLessThan(plain.solid.volume());
+    }
+  });
+
+  it('raises cells by random depths up to perfProtrusion without touching the inner wall', () => {
+    const P = 3;
+    for (const seed of [7, 42]) {
+      const p = structuredClone(DEFAULT_PARAMS);
+      p.shade.style = 'perforated';
+      p.shade.perfPattern = 'voronoi';
+      p.shade.perfSeed = seed;
+      p.shade.perfProtrusion = P;
+      p.shade.topClosure = 'open';
+      p.shade.mount = 'fitter';
+      const layout = computeLayout(p);
+      const [shade] = buildShadeParts(m, p, layout);
+      expect(shade.solid.status()).toBe('NoError');
+      const S = layout.shade;
+      const { positions } = toArrays(shade.solid);
+      let maxProud = 0;
+      let worstInner = 0;
+      for (let i = 0; i < positions.length; i += 3) {
+        const dx = positions[i] - layout.axisX;
+        const dy = positions[i + 1] - layout.axisY;
+        const t = Math.min(1, Math.max(0, (positions[i + 2] - layout.shadeBottom) / S.height));
+        const phi = Math.atan2(dy, dx);
+        maxProud = Math.max(maxProud, Math.hypot(dx, dy) - S.outerRadius(t, phi));
+        worstInner = Math.max(worstInner, S.innerRadius(t, phi) - 0.05 - Math.hypot(dx, dy));
+      }
+      expect(maxProud, `seed ${seed} deepest tile`).toBeGreaterThan(P * 0.5);
+      expect(maxProud, `seed ${seed} tile overshoot`).toBeLessThanOrEqual(P + 0.05);
+      expect(worstInner, `seed ${seed} inner wall`).toBeLessThanOrEqual(0.001);
+    }
   });
 });

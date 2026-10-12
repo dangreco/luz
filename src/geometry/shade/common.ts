@@ -53,20 +53,26 @@ export function polygonArea(poly: Vec2[]): number {
  * local frame (u = tangential, v = vertical, origin at the hole centre) extruded along
  * the radial direction at world angle `phi`, from `rIn` (clear inside the hollow) to
  * `rOut` (clear of the outer surface) — a prism that pierces the whole wall.
+ * `rIn` / `rOut` may be functions of the local (u, v) to give a non-flat floor / top
+ * (evaluated at every polygon vertex and at the polygon's vertex mean).
  */
+export type RadialFn = (u: number, v: number) => number;
+
 export function radialPrism(
   m: ManifoldToplevel,
   axisX: number,
   axisY: number,
   phi: number,
   z0: number,
-  rIn: number,
-  rOut: number,
+  rIn: number | RadialFn,
+  rOut: number | RadialFn,
   poly: Vec2[],
 ): Manifold {
   const k = poly.length;
   const cs = Math.cos(phi);
   const sn = Math.sin(phi);
+  const fIn: RadialFn = typeof rIn === 'function' ? rIn : () => rIn;
+  const fOut: RadialFn = typeof rOut === 'function' ? rOut : () => rOut;
   const pos = new Float32Array((2 * k + 2) * 3);
   const put = (idx: number, r: number, u: number, v: number): void => {
     pos[idx * 3] = axisX + r * cs - u * sn;
@@ -82,13 +88,13 @@ export function radialPrism(
   mx /= k;
   my /= k;
   for (let i = 0; i < k; i++) {
-    put(i, rIn, poly[i][0], poly[i][1]);
-    put(k + i, rOut, poly[i][0], poly[i][1]);
+    put(i, fIn(poly[i][0], poly[i][1]), poly[i][0], poly[i][1]);
+    put(k + i, fOut(poly[i][0], poly[i][1]), poly[i][0], poly[i][1]);
   }
   const cIn = 2 * k;
   const cOut = 2 * k + 1;
-  put(cIn, rIn, mx, my);
-  put(cOut, rOut, mx, my);
+  put(cIn, fIn(mx, my), mx, my);
+  put(cOut, fOut(mx, my), mx, my);
   const tri: number[] = [];
   for (let i = 0; i < k; i++) {
     const j = (i + 1) % k;

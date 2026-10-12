@@ -8,13 +8,17 @@ import { clamp, clipHalfPlane, mulberry32, polygonArea, radialPrism, TAU } from 
 const ARC_SEGMENTS = 256;
 /** Hard cap on voronoi cells so extreme parameters cannot explode the boolean. */
 const MAX_VORONOI_CELLS = 2000;
+/** Voronoi tiles raised less than this (mm) are skipped: indistinguishable from the flat wall. */
+const MIN_TILE_DEPTH = 0.2;
 
 /**
- * All hole cutters for a perforated shade, unioned into one solid (null when the
- * margins leave no usable room). Holes are laid out on the developed surface
+ * Hole cutters for a perforated shade, unioned into one solid (`cut`, null when the
+ * margins leave no usable room), plus raised voronoi tiles (`raise`, null unless
+ * perfProtrusion > 0). Holes are laid out on the developed surface
  * (arc length around × height) between z ∈ [zLo, zHi], which the caller has already
  * narrowed by the rim margins and the mount keep-out. Each cutter is a convex
- * radial prism piercing the wall; one union, one subtract.
+ * radial prism piercing the wall. The caller adds `raise` to the wall first, then
+ * subtracts `cut`, so every hole also passes through its own tile.
  */
 export function perfCutters(
   m: ManifoldToplevel,
@@ -25,15 +29,18 @@ export function perfCutters(
   shadeBottom: number,
   zLo: number,
   zHi: number,
-): Manifold | null {
+): { cut: Manifold | null; raise: Manifold | null } {
   const cutters: Manifold[] = [];
+  const tiles: Manifold[] = [];
   if (sh.perfPattern === 'voronoi') {
-    voronoiCutters(m, sh, S, axisX, axisY, shadeBottom, zLo, zHi, cutters);
+    voronoiCutters(m, sh, S, axisX, axisY, shadeBottom, zLo, zHi, cutters, tiles);
   } else {
     latticeCutters(m, sh, S, axisX, axisY, shadeBottom, zLo, zHi, cutters);
   }
-  if (cutters.length === 0) return null;
-  return m.Manifold.union(cutters);
+  return {
+    cut: cutters.length > 0 ? m.Manifold.union(cutters) : null,
+    raise: tiles.length > 0 ? m.Manifold.union(tiles) : null,
+  };
 }
 
 /** Regular row/column lattice of shaped holes (circles, hexes, slots, diamonds). */
@@ -78,23 +85,27 @@ function latticeCutters(
   }
 }
 
+/** One voronoi cell on the developed domain: the full cell, its inset hole, and its random protrusion. */
+interface VoronoiCell {
+  cell: Vec2[];
+  hole: Vec2[] | null;
+  /** outward protrusion of this cell's tile, mm (0 when perfProtrusion is 0) */
+  depth: number;
+}
+
 /**
  * Seeded voronoi lattice: jittered-grid sites on the developed (arc, height) domain,
- * periodic around the circumference; each cell is shrunk by perfSpacing/2 and the
- * remaining convex polygon becomes the hole.
+ * periodic around the circumference and clipped to the band [zLo, zHi]; each cell is
+ * shrunk by perfSpacing/2 (also off the band edges) and the remaining convex polygon
+ * becomes the hole. Every cell also draws a random depth in [0, perfProtrusion].
  */
-function voronoiCutters(
-  m: ManifoldToplevel,
+function voronoiCells(
   sh: ShadeParams,
   S: ShadeSurface,
-  axisX: number,
-  axisY: number,
   shadeBottom: number,
   zLo: number,
   zHi: number,
-  out: Manifold[],
-): void {
-  const H = S.height;
+): { cells: VoronoiCell[]; L: number; rMean: number } {
   const { L, rMean } = rowGeometry(S, 0.5);
   const vLo = zLo - shadeBottom;
   const vHi = zHi - shadeBottom;
@@ -112,14 +123,18 @@ function voronoiCutters(
       pts.push([(c + 0.5 + (rnd() - 0.5) * 0.7) * cw, vLo + (r + 0.5 + (rnd() - 0.5) * 0.7) * ch]);
   const reach = (3 * Math.max(cw, ch)) ** 2;
   const shrink = Math.min(sh.perfSpacing / 2, Math.min(cw, ch) / 4);
+  const maxDepth = Math.max(0, sh.perfProtrusion);
   const big = 1e6;
+  const cells: VoronoiCell[] = [];
   for (let i = 0; i < pts.length; i++) {
     const p = pts[i];
+    // drawn after all sites, one per cell, so enabling protrusion never moves the sites
+    const depth = maxDepth > 0 ? rnd() * maxDepth : 0;
     let poly: Vec2[] = [
-      [-big, vLo - big],
-      [big, vLo - big],
-      [big, vHi + big],
-      [-big, vHi + big],
+      [p[0] - big, vLo],
+      [p[0] + big, vLo],
+      [p[0] + big, vHi],
+      [p[0] - big, vHi],
     ];
     for (let j = 0; j < pts.length && poly.length >= 3; j++) {
       if (j === i) continue;
@@ -134,26 +149,88 @@ function voronoiCutters(
     }
     if (poly.length < 3) continue;
     const shrunk = shrinkPolygon(poly, shrink);
-    if (!shrunk || polygonArea(shrunk) < 1.5) continue;
-    let cx = 0;
-    let cy = 0;
-    for (const q of shrunk) {
-      cx += q[0];
-      cy += q[1];
+    cells.push({ cell: poly, hole: shrunk && polygonArea(shrunk) >= 1.5 ? shrunk : null, depth });
+  }
+  return { cells, L, rMean };
+}
+
+/** Centre, local-frame polygon and half-extents of a developed-domain polygon. */
+function footprint(poly: Vec2[]): { cx: number; cy: number; local: Vec2[]; hw: number; hv: number } {
+  let cx = 0;
+  let cy = 0;
+  for (const q of poly) {
+    cx += q[0];
+    cy += q[1];
+  }
+  cx /= poly.length;
+  cy /= poly.length;
+  const local: Vec2[] = poly.map((q) => [q[0] - cx, q[1] - cy]);
+  let hw = 0;
+  let hv = 0;
+  for (const q of local) {
+    hw = Math.max(hw, Math.abs(q[0]));
+    hv = Math.max(hv, Math.abs(q[1]));
+  }
+  return { cx, cy, local, hw, hv };
+}
+
+/**
+ * Hole cutters (one per cell) and, when perfProtrusion > 0, raised cell tiles. A tile is
+ * the whole cell extruded from mid-wall to its random depth beyond the outer surface;
+ * its hole is cut through the tile, so each hole is framed by a rim at its own height.
+ */
+function voronoiCutters(
+  m: ManifoldToplevel,
+  sh: ShadeParams,
+  S: ShadeSurface,
+  axisX: number,
+  axisY: number,
+  shadeBottom: number,
+  zLo: number,
+  zHi: number,
+  out: Manifold[],
+  tiles: Manifold[],
+): void {
+  const H = S.height;
+  const { cells, L, rMean } = voronoiCells(sh, S, shadeBottom, zLo, zHi);
+  for (const { cell, hole, depth } of cells) {
+    // an unclosed cell (single column) spans the whole circumference: no tile
+    let tileOut = -Infinity;
+    if (depth >= MIN_TILE_DEPTH) {
+      const f = footprint(cell);
+      if (f.hw < L / 2) {
+        const phi = (((f.cx / rMean) % TAU) + TAU) % TAU;
+        const span = wallSpan(S, clamp(f.cy / H, 0, 1), phi, f.hw, f.hv, rMean, H);
+        // Floor and top follow the real wall at each polygon vertex: the floor sits mid-wall (always
+        // inside the solid), the top at outerRadius + depth. A prism point at tangential offset u and
+        // radial coordinate r lies at true radius sqrt(r² + u²), so r is pulled in accordingly.
+        const surf = (u: number, v: number): { ri: number; ro: number } => {
+          const t = clamp((f.cy + v) / H, 0, 1);
+          const a = phi + u / rMean;
+          return { ri: S.innerRadius(t, a), ro: S.outerRadius(t, a) };
+        };
+        const flat = (R: number, u: number): number => Math.sqrt(Math.max(R * R - u * u, 0));
+        tileOut = span.rOut - 0.7 + depth;
+        tiles.push(
+          radialPrism(
+            m, axisX, axisY, phi, shadeBottom + f.cy,
+            (u, v) => {
+              const s = surf(u, v);
+              return flat((s.ri + s.ro) / 2, u);
+            },
+            (u, v) => flat(surf(u, v).ro + depth, u),
+            f.local,
+          ),
+        );
+      }
     }
-    cx /= shrunk.length;
-    cy /= shrunk.length;
-    const local: Vec2[] = shrunk.map((q) => [q[0] - cx, q[1] - cy]);
-    let hw = 0;
-    let hv = 0;
-    for (const q of local) {
-      hw = Math.max(hw, Math.abs(q[0]));
-      hv = Math.max(hv, Math.abs(q[1]));
-    }
-    const phi = (((cx / rMean) % TAU) + TAU) % TAU;
-    const t = clamp(cy / H, 0, 1);
-    const span = wallSpan(S, t, phi, hw, hv, rMean, H);
-    out.push(radialPrism(m, axisX, axisY, phi, shadeBottom + cy, span.rIn, span.rOut, local));
+    if (!hole) continue;
+    const f = footprint(hole);
+    const phi = (((f.cx / rMean) % TAU) + TAU) % TAU;
+    const span = wallSpan(S, clamp(f.cy / H, 0, 1), phi, f.hw, f.hv, rMean, H);
+    // the cutter must clear the whole tile above it, which is measured over the larger cell footprint
+    const rOut = Math.max(span.rOut + depth, tileOut + 0.7);
+    out.push(radialPrism(m, axisX, axisY, phi, shadeBottom + f.cy, span.rIn, rOut, f.local));
   }
 }
 
@@ -271,17 +348,23 @@ function wallSpan(
   halfV: number,
   rMean: number,
   H: number,
-): { rIn: number; rOut: number } {
+): { rIn: number; rOut: number; rInMax: number; rOutMin: number } {
   const dPhi = halfU / Math.max(1e-6, rMean);
   const dT = halfV / Math.max(1e-6, H);
   let rIn = Infinity;
   let rOut = -Infinity;
+  let rInMax = -Infinity;
+  let rOutMin = Infinity;
   for (const dt of [-dT, 0, dT]) {
     const tt = clamp(t + dt, 0, 1);
     for (const dp of [-dPhi, 0, dPhi]) {
-      rIn = Math.min(rIn, S.innerRadius(tt, phi + dp));
-      rOut = Math.max(rOut, S.outerRadius(tt, phi + dp));
+      const ri = S.innerRadius(tt, phi + dp);
+      const ro = S.outerRadius(tt, phi + dp);
+      rIn = Math.min(rIn, ri);
+      rOut = Math.max(rOut, ro);
+      rInMax = Math.max(rInMax, ri);
+      rOutMin = Math.min(rOutMin, ro);
     }
   }
-  return { rIn: rIn - 0.7, rOut: rOut + 0.7 };
+  return { rIn: rIn - 0.7, rOut: rOut + 0.7, rInMax, rOutMin };
 }

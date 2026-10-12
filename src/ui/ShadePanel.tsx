@@ -242,7 +242,10 @@ export function ShadePanel({ p, edit }: PanelProps) {
               f.num(s.perfPattern === 'slots' ? 'Slot length factor' : 'Diamond aspect', (d) => d.shade, 'perfElongation', 1, 8, 0.1)}
             {f.num('Solid margin top/bottom', (d) => d.shade, 'perfMargin', 0, 60, 0.5, 'mm')}
             {s.perfPattern === 'voronoi' ? (
-              f.num('Voronoi seed', (d) => d.shade, 'perfSeed', 0, 9999, 1)
+              <>
+                {f.num('Voronoi seed', (d) => d.shade, 'perfSeed', 0, 9999, 1)}
+                {f.num('Cell protrusion', (d) => d.shade, 'perfProtrusion', 0, 10, 0.2, 'mm', 'Each cell is raised by a random depth up to this; 0 = flat (woven look)')}
+              </>
             ) : (
               f.tog('Stagger alternate rows', (d) => d.shade, 'perfStagger')
             )}
