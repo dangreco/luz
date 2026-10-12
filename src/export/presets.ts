@@ -32,7 +32,7 @@ const ENUMS: Record<string, readonly string[]> = {
   'shade.texture.pattern': ['none', 'knit', 'knurl', 'ribs', 'checker'],
   'base.texture.pattern': ['none', 'knit', 'knurl', 'ribs', 'checker'],
   'shade.ribWave': ['sine', 'triangle', 'square', 'scallop'],
-  'shade.perfPattern': ['circles', 'hexes', 'slots', 'diamonds', 'voronoi'],
+  'shade.perfPattern': ['circles', 'hexes', 'slots', 'diamonds', 'voronoi', 'mesh'],
   'materials.shade': ['PLA', 'PETG', 'ASA', 'ABS', 'PC'],
   'materials.structure': ['PLA', 'PETG', 'ASA', 'ABS', 'PC'],
 };

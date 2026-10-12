@@ -32,7 +32,8 @@ Build a static, browser-only (Vite + React + TypeScript) parametric table-lamp g
    top and bottom sections can differ and are morphed along the height.
 4. **Shade**: height, top/bottom size, profile curve (editable spline + bulge), twist with easing, wall
    thickness, rim beads; surface style: smooth (vase-mode friendly), ribs/fins/pleats (count, depth,
-   waveform, twist, corrugated vs solid fins), perforated (circles, hexes, slots, diamonds, Voronoi lattice),
+   waveform, twist, corrugated vs solid fins), perforated (circles, hexes, slots, diamonds, Voronoi lattice,
+   fine hex-packed mesh for a HomePod-style diffuse wall),
    woven texture (surface relief) and true woven basket (interlaced helical strands, over/under).
 5. **Bulb–shade distance** is a first-class parameter: either set absolute shade size, or auto-size the
    shade so the closest point of its inner wall is a chosen distance from the bulb envelope.

@@ -190,3 +190,30 @@ describe('voronoi perforation', () => {
     }
   });
 });
+
+describe('mesh perforation', () => {
+  let m: ManifoldToplevel;
+  beforeAll(async () => {
+    m = await loadManifold();
+  });
+
+  it('cuts a dense hex-packed grid of small holes into a valid solid', () => {
+    const p = structuredClone(DEFAULT_PARAMS);
+    p.shade.style = 'perforated';
+    p.shade.perfPattern = 'mesh';
+    p.shade.perfSize = 2.4;
+    p.shade.perfSpacing = 0.8;
+    p.shade.topClosure = 'open';
+    p.shade.mount = 'fitter';
+    const [shade] = buildShadeParts(m, p, computeLayout(p));
+    expect(shade.solid.status()).toBe('NoError');
+    const smooth = structuredClone(p);
+    smooth.shade.style = 'smooth';
+    const [plain] = buildShadeParts(m, smooth, computeLayout(smooth));
+    const open = 1 - shade.solid.volume() / plain.solid.volume();
+    // hex-packed 2.4 mm holes at a 3.2 mm pitch open ~46 % of the perforated band (measured 19 % of
+    // the whole shade): a real mesh, not a stray hole and not a collapsed wall
+    expect(open).toBeGreaterThan(0.1);
+    expect(open).toBeLessThan(0.6);
+  });
+});

@@ -56,6 +56,7 @@ const PATTERNS: Array<Option<PerfPattern>> = [
   { value: 'slots', label: 'Slots' },
   { value: 'diamonds', label: 'Diamonds' },
   { value: 'voronoi', label: 'Voronoi lattice' },
+  { value: 'mesh', label: 'Fine mesh (HomePod-style)' },
 ];
 const DIFFUSER_POSITIONS: Array<Option<DiffuserPosition>> = [
   { value: 'none', label: 'None' },
@@ -236,8 +237,8 @@ export function ShadePanel({ p, edit }: PanelProps) {
         {s.style === 'perforated' && (
           <>
             {f.sel('Pattern', (d) => d.shade, 'perfPattern', PATTERNS)}
-            {f.num('Hole size', (d) => d.shade, 'perfSize', 2, 60, 0.5, 'mm')}
-            {f.num('Web between holes', (d) => d.shade, 'perfSpacing', 1, 20, 0.5, 'mm')}
+            {f.num('Hole size', (d) => d.shade, 'perfSize', 1, 60, 0.5, 'mm')}
+            {f.num('Web between holes', (d) => d.shade, 'perfSpacing', 0.6, 20, 0.2, 'mm', s.perfPattern === 'mesh' ? 'Keep ≥ 2 nozzle widths (0.8 mm for a 0.4 nozzle)' : undefined)}
             {(s.perfPattern === 'slots' || s.perfPattern === 'diamonds') &&
               f.num(s.perfPattern === 'slots' ? 'Slot length factor' : 'Diamond aspect', (d) => d.shade, 'perfElongation', 1, 8, 0.1)}
             {f.num('Solid margin top/bottom', (d) => d.shade, 'perfMargin', 0, 60, 0.5, 'mm')}
@@ -246,7 +247,7 @@ export function ShadePanel({ p, edit }: PanelProps) {
                 {f.num('Voronoi seed', (d) => d.shade, 'perfSeed', 0, 9999, 1)}
                 {f.num('Cell protrusion', (d) => d.shade, 'perfProtrusion', 0, 10, 0.2, 'mm', 'Each cell is raised by a random depth up to this; 0 = flat (woven look)')}
               </>
-            ) : (
+            ) : s.perfPattern === 'mesh' ? null : (
               f.tog('Stagger alternate rows', (d) => d.shade, 'perfStagger')
             )}
           </>

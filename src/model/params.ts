@@ -269,7 +269,7 @@ export type ShadeSizing = 'absolute' | 'clearance';
 export type ProfileMode = 'linear' | 'bulge' | 'custom';
 export type SurfaceStyle = 'smooth' | 'ribs' | 'perforated' | 'textured' | 'basket';
 export type RibWave = 'sine' | 'triangle' | 'square' | 'scallop';
-export type PerfPattern = 'circles' | 'hexes' | 'slots' | 'diamonds' | 'voronoi';
+export type PerfPattern = 'circles' | 'hexes' | 'slots' | 'diamonds' | 'voronoi' | 'mesh';
 export type TopClosure = 'open' | 'closed' | 'vented';
 
 export interface ShadeParams {

@@ -10,6 +10,10 @@ const ARC_SEGMENTS = 256;
 const MAX_VORONOI_CELLS = 2000;
 /** Voronoi tiles raised less than this (mm) are skipped: indistinguishable from the flat wall. */
 const MIN_TILE_DEPTH = 0.2;
+/** Hard cap on mesh holes (fine HomePod-style grids get big fast). */
+const MAX_MESH_HOLES = 6000;
+/** Row spacing of a hex-packed grid, as a fraction of the column pitch. */
+const MESH_ROW = Math.sqrt(3) / 2;
 
 /**
  * Hole cutters for a perforated shade, unioned into one solid (`cut`, null when the
@@ -43,7 +47,7 @@ export function perfCutters(
   };
 }
 
-/** Regular row/column lattice of shaped holes (circles, hexes, slots, diamonds). */
+/** Regular row/column lattice of shaped holes (circles, hexes, slots, diamonds, mesh). */
 function latticeCutters(
   m: ManifoldToplevel,
   sh: ShadeParams,
@@ -65,8 +69,16 @@ function latticeCutters(
     halfV = Math.max(halfV, Math.abs(q[1]));
     halfU = Math.max(halfU, Math.abs(q[0]));
   }
+  const mesh = sh.perfPattern === 'mesh';
   const vertical = sh.perfPattern === 'slots' || sh.perfPattern === 'diamonds';
-  const vPitch = (vertical ? size * elong : size) + spacing;
+  let pitch = size + spacing;
+  let vPitch = (vertical ? size * elong : size) + spacing;
+  if (mesh) {
+    // hex packing: equal distance to all six neighbours (rows √3/2 apart, alternate rows offset by half a pitch)
+    const domain = Math.max(0, zHi - zLo) * rowGeometry(S, 0.5).L;
+    pitch = Math.max(pitch, Math.sqrt(domain / (MAX_MESH_HOLES * MESH_ROW))); // cap the cutter count
+    vPitch = pitch * MESH_ROW;
+  }
   const H = S.height;
   const vBot = zLo - shadeBottom;
   const vTop = zHi - shadeBottom;
@@ -74,9 +86,9 @@ function latticeCutters(
   for (let v = vBot + halfV; v + halfV <= vTop + 1e-9; v += vPitch, row++) {
     const t = clamp(v / H, 0, 1);
     const { L, phiAt, rMean } = rowGeometry(S, t);
-    const cols = Math.max(1, Math.floor(L / (size + spacing)));
+    const cols = Math.max(1, Math.floor(L / pitch));
     const step = L / cols;
-    const shift = sh.perfStagger && row % 2 === 1 ? 0.5 : 0;
+    const shift = (mesh || sh.perfStagger) && row % 2 === 1 ? 0.5 : 0;
     for (let c = 0; c < cols; c++) {
       const phi = phiAt(((c + shift) * step) % L);
       const span = wallSpan(S, t, phi, halfU, halfV, rMean, H);
@@ -270,6 +282,9 @@ function holePolygon(pattern: PerfPattern, size: number, elong: number): Vec2[] 
       ];
     case 'voronoi':
       return regularPolygon(size / 2, 12, 0);
+    case 'mesh':
+      // flat top and bottom edges: the upper edge bridges instead of printing as a pointed overhang
+      return regularPolygon(size / 2, 8, Math.PI / 8);
   }
 }
 
