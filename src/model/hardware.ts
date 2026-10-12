@@ -7,9 +7,9 @@ const IN = 25.4;
  * Sources: B&P 48107i E26 porcelain U-clip snap-in (1-17/32 in hole, 1-3/4 in face), Paxton 2440 E12 spring-clip
  * socket (1 in hole), Etlin-Daniels IS212 (clips grip 0.032–0.093 in panels).
  */
-const SNAP_FIT: Record<SocketBase, Pick<SocketSpec, 'snapHoleDiameter' | 'flangeDiameter' | 'clipReach' | 'gripMin' | 'gripMax' | 'antiRotate'>> = {
-  E26: { snapHoleDiameter: 38.9, flangeDiameter: 44.5, clipReach: 43, gripMin: 0.8, gripMax: 2.4, antiRotate: true },
-  E12: { snapHoleDiameter: 25.4, flangeDiameter: 28.6, clipReach: 28, gripMin: 0.8, gripMax: 2.4, antiRotate: true },
+const SNAP_FIT: Record<SocketBase, Pick<SocketSpec, 'snapHoleDiameter' | 'flangeDiameter' | 'clipReach' | 'gripMin' | 'gripMax' | 'antiRotate' | 'wingWidth' | 'wingTolerance'>> = {
+  E26: { snapHoleDiameter: 38.9, flangeDiameter: 44.5, clipReach: 43, gripMin: 0.8, gripMax: 2.4, antiRotate: true, wingWidth: 8, wingTolerance: 0.4 },
+  E12: { snapHoleDiameter: 25.4, flangeDiameter: 28.6, clipReach: 28, gripMin: 0.8, gripMax: 2.4, antiRotate: true, wingWidth: 8, wingTolerance: 0.4 },
 };
 
 /** Keyless socket presets (nipple / ring mounts). Sources: Grand Brass SOE26TP81W / SO10038, Nostalgicbulbs BD30-40. */

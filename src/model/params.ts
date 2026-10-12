@@ -54,8 +54,12 @@ export interface SocketSpec {
   /** snap-in: panel thickness range the clips grip */
   gripMin: number;
   gripMax: number;
-  /** snap-in: two printed lugs in the panel hole key the socket against rotation while a bulb is screwed in */
+  /** snap-in: full-height rib pairs flank each spring wing so the socket cannot rotate or tilt */
   antiRotate: boolean;
+  /** snap-in: spring-wing width across the socket body */
+  wingWidth: number;
+  /** snap-in: slot clearance per wing side */
+  wingTolerance: number;
 }
 
 export interface HardwareParams {
@@ -105,7 +109,7 @@ export interface InsertSpec {
 export type WagoModel = '221-412' | '2273-202';
 
 export interface WagoParams {
-  /** service bay in the base underside with a screwed cover plate and slide-in connector sleeves on its ceiling */
+  /** split service base: tray with connector sleeves on its floor, deck on top, 4 screws clamping tray + deck + socket cup */
   enabled: boolean;
   model: WagoModel;
   /** connector body (measure yours): width across the conductor entries, height (levers closed), depth along the wires */
@@ -114,8 +118,6 @@ export interface WagoParams {
   depth: number;
   /** slide fit of the connector in its sleeve, per side (≈ 0.15 snug … 0.35 loose) */
   clearance: number;
-  /** self-tapping screws for the cover plate (M3 / #4 = 3); self-tapping mode only (inserts are always M3) */
-  coverScrewDiameter: number;
 }
 
 export interface StrainReliefParams {
@@ -451,6 +453,8 @@ export const DEFAULT_PARAMS: LampParams = {
       gripMin: 0.8,
       gripMax: 2.4,
       antiRotate: true,
+      wingWidth: 8,
+      wingTolerance: 0.4,
     },
     nippleDiameter: 10.29,
     nutAcrossFlats: 12.7,
@@ -460,7 +464,7 @@ export const DEFAULT_PARAMS: LampParams = {
     prewiredCord: false,
     plugWidth: 22,
     plugThickness: 16,
-    wago: { enabled: false, model: '221-412', width: 13.2, height: 8.4, depth: 18.8, clearance: 0.25, coverScrewDiameter: 3 },
+    wago: { enabled: false, model: '221-412', width: 13.2, height: 8.4, depth: 18.8, clearance: 0.25 },
     strainRelief: { enabled: false, screwDiameter: 3, squeeze: 0.8 },
     fastening: 'insert',
     insert: { outerDiameter: 5.0, length: 4.0, holeDiameter: 4.6, chamfer: 0.5 },

@@ -157,7 +157,9 @@ export function ParamPanel({ p, edit, onReplace, onReset }: ParamPanelProps) {
             {f.num('Clip wing reach', (d) => d.hardware.socket, 'clipReach', 10, 80, 0.1, 'mm', 'Across the relaxed spring wings, behind the panel')}
             {f.num('Grip: min panel', (d) => d.hardware.socket, 'gripMin', 0.3, 6, 0.1, 'mm')}
             {f.num('Grip: max panel', (d) => d.hardware.socket, 'gripMax', 0.5, 8, 0.1, 'mm', 'Typical 0.032–0.093 in (0.8–2.4 mm); the cup plate (+ hub) must fall inside')}
-            {f.tog('Anti-rotation lugs', (d) => d.hardware.socket, 'antiRotate', 'Two printed lugs key the snap-in socket against rotation when screwing in a bulb')}
+            {f.tog('Anti-rotation wing slots', (d) => d.hardware.socket, 'antiRotate', 'Full-height rib pairs flank each spring wing so the snap-in socket cannot rotate or tilt')}
+            {hw.socket.antiRotate && f.num('Wing width', (d) => d.hardware.socket, 'wingWidth', 4, 20, 0.5, 'mm', 'Spring-clip width across the socket body')}
+            {hw.socket.antiRotate && f.num('Wing slot tolerance', (d) => d.hardware.socket, 'wingTolerance', 0.1, 1, 0.05, 'mm', 'Per side')}
           </>
         )}
         {f.num('Contact depth', (d) => d.hardware.socket, 'contactDepth', 2, 60, 0.1, 'mm', hw.socketMount === 'snap' ? 'Face flange (panel top) down to the bulb centre contact' : 'Socket top rim down to the bulb centre contact')}
@@ -199,7 +201,7 @@ export function ParamPanel({ p, edit, onReplace, onReset }: ParamPanelProps) {
           </>
         )}
         <SubHeading>Splice connectors</SubHeading>
-        {f.tog('Wiring bay (screwed cover + WAGO holders)', (d) => d.hardware.wago, 'enabled', 'Kettle-style service bay in the base underside closed by a screwed-on cover plate; two slide-in connector sleeves on its ceiling. Solid base only')}
+        {f.tog('Split base (tray + deck, WAGO holders)', (d) => d.hardware.wago, 'enabled', 'Splits the base into a floor-down tray and a deck; 4 screws from below clamp tray, deck and socket cup. Solid base only')}
         {hw.wago.enabled && (
           <>
             <div className="field select">
@@ -226,10 +228,9 @@ export function ParamPanel({ p, edit, onReplace, onReset }: ParamPanelProps) {
             {f.num('Connector width', (d) => d.hardware.wago, 'width', 4, 40, 0.1, 'mm', 'Across the wire entries')}
             {f.num('Connector height', (d) => d.hardware.wago, 'height', 3, 30, 0.1, 'mm', 'Levers closed')}
             {f.num('Connector depth', (d) => d.hardware.wago, 'depth', 6, 40, 0.1, 'mm', 'Along the wires')}
-            {f.num('Sleeve clearance', (d) => d.hardware.wago, 'clearance', 0, 1, 0.05, 'mm', 'Per side: ≈ 0.15 snug, 0.25 normal, 0.35 loose (crush ribs still hold it)')}
-            {hw.fastening === 'selfTap' && f.num('Cover screw size', (d) => d.hardware.wago, 'coverScrewDiameter', 2, 5, 0.5, 'mm', 'Self-tapping pan-head screws: M3 / #4 = 3')}
+            {f.num('Sleeve clearance', (d) => d.hardware.wago, 'clearance', 0, 1, 0.05, 'mm', 'Per side: ≈ 0.15 snug, 0.25 normal, 0.35 loose (0.5 mm crush ribs grip 0.25 mm per side; raise it if the connector is too tight)')}
             <Note>
-              {WAGO_CONNECTORS[hw.wago.model].source}. Strip {WAGO_CONNECTORS[hw.wago.model].strip} mm. Kettle-style: unscrew the bottom plate to reach the splices; levers face the cover.
+              {WAGO_CONNECTORS[hw.wago.model].source}. Strip {WAGO_CONNECTORS[hw.wago.model].strip} mm. Service: unscrew the 4 base screws and lift the deck + cup off the wired tray.
             </Note>
           </>
         )}

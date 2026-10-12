@@ -1,4 +1,5 @@
 import {
+  CLAMP_RIDGE,
   CORD_CLEAR,
   cordBoreDiameter,
   screwLength,
@@ -214,6 +215,19 @@ function fastenerBore(m: ManifoldToplevel, hole: FastenerHole, x: number, y: num
   return out;
 }
 
+/** Blind fastener hole opening upward at zTop (pedestal top): straight bore down from the top + 45° lead-in cone. */
+function fastenerBoreUp(m: ManifoldToplevel, hole: FastenerHole, x: number, y: number, zTop: number): Manifold {
+  const r = hole.diameter / 2;
+  const shaft = bore(m, hole.diameter, zTop - hole.depth, zTop + THROUGH, x, y, 48);
+  if (hole.chamfer <= 0) return shaft;
+  const cone = m.Manifold.cylinder(hole.chamfer, r, r + hole.chamfer, 48).translate(x, y, zTop - hole.chamfer);
+  const apron = m.Manifold.cylinder(THROUGH, r + hole.chamfer, -1, 48).translate(x, y, zTop);
+  const out = shaft.add(cone).add(apron);
+  shaft.delete();
+  cone.delete();
+  apron.delete();
+  return out;
+}
 /** Box with its bottom face centred at (x, y, z0), `along` = unit XY direction of its first side. */
 function orientedBlock(
   m: ManifoldToplevel,
@@ -246,13 +260,13 @@ function feetCenters(b: LampParams['base']): Array<[number, number]> {
 }
 
 /**
- * Connector sleeves, cover-screw bosses and their pilots for the wiring bay, as leftover material hanging from the
- * ceiling: each sleeve is a U-channel (side walls, an end stop at the centre end, a roof merging into the ceiling)
- * that is open at its outer end and open downward — the lever window. Two 0.3 mm crush ribs per sleeve hold the
- * connector by interference. Bosses run from the cover's top face up into the ceiling.
+ * Connector sleeves and cup-screw pillars for the wiring-bay tray, as material standing on the tray floor: each sleeve
+ * is a U-channel (side walls and an end stop at the centre end) open at its outer end and open upward — the lever
+ * window. Two 0.5 mm crush ribs per sleeve hold the connector by interference. Four pillars carry the base screws
+ * from the floor up to the cup spigot's end face.
  */
-function bayAdds(m: ManifoldToplevel, bay: WiringBay, zb: number, seg: number): { adds: Manifold[]; pilots: Manifold[] } {
-  const zc = zb + bay.depth; // ceiling underside
+function bayAdds(m: ManifoldToplevel, bay: WiringBay, zb: number, seg: number): Manifold[] {
+  const zf = zb + bay.floor; // floor top
   const adds: Manifold[] = [];
   for (const s of bay.sleeves) {
     const across: [number, number] = [-s.along[1], s.along[0]];
@@ -260,29 +274,28 @@ function bayAdds(m: ManifoldToplevel, bay: WiringBay, zb: number, seg: number): 
       s.x + s.along[0] * la + across[0] * lc,
       s.y + s.along[1] * la + across[1] * lc,
     ];
-    // outer: end stop behind the centre end, side walls, 0.3 mm roof overlapping the solid ceiling; no wall at the open end
+    // outer: end stop behind the centre end and side walls, with a 0.3 mm foot merging into the floor; no wall at the open end
     const [ox, oy] = at(-SLEEVE_STOP / 2);
-    const outer = orientedBlock(m, ox, oy, zc - s.hgt, s.along, s.len + SLEEVE_STOP, s.wid + 2 * SLEEVE_WALL, s.hgt + 0.3);
-    // inner slot: through the open end and the whole bottom (lever window)
+    const outer = orientedBlock(m, ox, oy, zf - 0.3, s.along, s.len + SLEEVE_STOP, s.wid + 2 * SLEEVE_WALL, s.hgt + 0.3);
+    // inner slot: through the open end and the top (lever window); the floor stays under the connector
     const [ix, iy] = at(THROUGH / 2);
-    const slot = orientedBlock(m, ix, iy, zc - s.hgt - THROUGH, s.along, s.len + THROUGH, s.wid, s.hgt + THROUGH);
+    const slot = orientedBlock(m, ix, iy, zf, s.along, s.len + THROUGH, s.wid, s.hgt + THROUGH);
     const rail = outer.subtract(slot);
     outer.delete();
     slot.delete();
     adds.push(rail);
     const ribLen = Math.min(8, s.len * 0.4);
-    const ribH = s.hgt * 0.6;
+    // grip = sleeve clearance − 0.25 mm per side: the ribs interfere 0.25 mm per side at the default clearance
+    const ribH = s.hgt - bay.hole.wallRadius - 1;
     for (const side of [-1, 1]) {
       const [rx, ry] = at(0, (side * s.wid) / 2);
-      adds.push(orientedBlock(m, rx, ry, zc - ribH, s.along, ribLen, 0.6, ribH + 0.01));
+      adds.push(orientedBlock(m, rx, ry, zf - 0.01, s.along, ribLen, 0.5, ribH + 0.01));
     }
   }
-  const pilots: Manifold[] = [];
-  for (const s of bay.screws) {
-    adds.push(bore(m, bay.hole.bossDiameter, zb + bay.coverThickness, zc + 0.3, s.x, s.y, seg));
-    pilots.push(fastenerBore(m, bay.hole, s.x, s.y, zb + bay.coverThickness));
-  }
-  return { adds, pilots };
+  // pillars stop 0.2 mm short of the cup spigot's end face: the clamp load runs through the tray wall and the deck
+  for (const s of bay.screws)
+    adds.push(bore(m, 2 * bay.hole.wallRadius, zf - 0.3, bay.cupScrewMouthZ - 0.2, s.x, s.y, seg));
+  return adds;
 }
 
 /** Outer diameter of a joint spigot built around a `boreDiameter` cord bore. */
@@ -308,8 +321,8 @@ interface CupPlan {
   /** z where the cavity reaches its full diameter */
   coneEnd: number;
   plateHoleD: number;
-  /** snap-in anti-rotation lugs: radial intrusion into the plate hole (0 = none) */
-  lugBite: number;
+  /** snap-in wing slots: slot width between the rib pair and rib intrusion past the hole wall (null = none) */
+  wingSlot: { width: number; bite: number } | null;
   nutPocket: { size: number; height: number } | null;
   /** usable engagement depth for the stem spigot (zShelf − zBot) */
   straightDepth: number;
@@ -339,7 +352,7 @@ function planCup(p: LampParams, layout: Layout, cordD: number, stemBoreD: number
   let coneEnd: number;
   let plateHoleD: number;
   let nutPocket: CupPlan['nutPocket'] = null;
-  let lugBite = 0;
+  let wingSlot: CupPlan['wingSlot'] = null;
 
   if (hw.socketMount === 'ring') {
     const need = hw.socket.bodyDiameter + cu.clearance;
@@ -371,8 +384,10 @@ function planCup(p: LampParams, layout: Layout, cordD: number, stemBoreD: number
     plateHoleD = hw.socket.snapHoleDiameter + cu.clearance;
     if (hw.socket.antiRotate) {
       const slack = (hw.socket.snapHoleDiameter - hw.socket.bodyDiameter) / 2;
-      if (slack < 0.6) notes.push('Socket body nearly fills the mounting hole — anti-rotation lugs skipped.');
-      else lugBite = clamp(slack - 0.2, 0.4, 1.2);
+      wingSlot = {
+        width: hw.socket.wingWidth + 2 * hw.socket.wingTolerance,
+        bite: clamp(slack - 0.6, 0.4, 1.6),
+      };
     }
   } else {
     const nutAcrossCorners = hw.nutAcrossFlats / Math.cos(Math.PI / 6);
@@ -406,8 +421,13 @@ function planCup(p: LampParams, layout: Layout, cordD: number, stemBoreD: number
     coneEnd = zShelf;
     cavityD = Math.max(cavityD, boreD);
   } else if (cavityD > boreD + 0.3) {
-    const slope = Math.atan2(cavityD / 2 - boreD / 2, coneEnd - zShelf) / DEG;
-    if (slope > 45)
+    // The cup prints plate-down: keep the flare within 45° of vertical (self-supporting) by lengthening it downward —
+    // lower zShelf until the radial growth fits the height. A stem spigot needs ≥ 3 mm of straight bore to seat in;
+    // a stem-less cup has only the cord bore, so it may start the flare 1 mm above its bottom.
+    const dr = (cavityD - boreD) / 2;
+    zShelf = Math.max(Math.min(zShelf, coneEnd - dr), zBot + (hasStem ? 3 : 1));
+    const slope = Math.atan2(dr, coneEnd - zShelf) / DEG;
+    if (slope > 45 + 1e-6)
       notes.push(
         `Cavity flare is steep (${r1(slope)}° from vertical) — expect a small bridged ring when printing plate-down.`,
       );
@@ -420,7 +440,7 @@ function planCup(p: LampParams, layout: Layout, cordD: number, stemBoreD: number
     zShelf,
     coneEnd,
     plateHoleD,
-    lugBite,
+    wingSlot,
     nutPocket,
     straightDepth: zShelf - zBot,
     notes,
@@ -504,7 +524,7 @@ function buildBaseSolid(
     notes.push(`Weight pocket Ø${r1(diameter)} × ${r1(depth)} mm — about ${grams} g of sand or steel shot.`);
   }
 
-  if (!legged && !hollow && !layout.bay && b.feetCount > 0 && b.feetDiameter > 0 && b.feetDepth > 0) {
+  if (!legged && !hollow && b.feetCount > 0 && b.feetDiameter > 0 && b.feetDepth > 0) {
     const centers = feetCenters(b);
     for (const [x, y] of centers) tools.push(bore(m, b.feetDiameter, zb - THROUGH, zb + b.feetDepth, x, y, seg));
     if (centers.length > 0)
@@ -515,9 +535,9 @@ function buildBaseSolid(
   tools.push(bore(m, cordBoreDiameter(hw), zb - THROUGH, layout.baseTop + THROUGH, layout.axisX, layout.axisY, seg));
 
   if (layout.bay) {
-    // service bay open at the underside, plus the cord exit through its wall hugging the ceiling
+    // tray cavity above the floor up to the deck underside, plus the cord exit through its wall hugging the deck
     const bay = layout.bay;
-    tools.push(bore(m, bay.diameter, zb - THROUGH, zb + bay.depth, layout.axisX, layout.axisY, seg));
+    tools.push(bore(m, bay.diameter, zb + bay.floor, zb + bay.depth, layout.axisX, layout.axisY, seg));
     const ex = bay.exit;
     tools.push(orientedBlock(m, ex.x, ex.y, ex.z - ex.height / 2, ex.along, ex.len, ex.width, ex.height));
   }
@@ -688,24 +708,16 @@ function buildBaseSolid(
     const bay = layout.bay;
     const w = hw.wago;
     const info = WAGO_CONNECTORS[w.model];
-    const { adds: bayAddsList, pilots } = bayAdds(m, bay, zb, seg);
+    const bayAddsList = bayAdds(m, bay, zb, seg);
     solid = m.Manifold.union([solid, ...bayAddsList]);
     bayAddsList.forEach((a) => a.delete());
-    for (const t of pilots) {
-      solid = solid.subtract(t);
-      t.delete();
-    }
     const s0 = bay.sleeves[0];
     notes.push(
-      `Wiring bay Ø${r1(bay.diameter)} × ${r1(bay.depth)} mm in the base underside, closed by a screwed-on cover plate. ` +
-        `2 × ${w.model} sleeves molded on the ceiling (${r1(s0.len)} × ${r1(s0.wid)} × ${r1(s0.hgt)} mm inside, ${r1(w.clearance)} mm/side, crush ribs): ` +
-        'slide each connector in from the outer end toward the lamp centre, levers down — they stay fully exposed with the cover off. ' +
+      `Split service base: a tray (floor ${r1(bay.floor)} mm + wall, Ø${r1(bay.diameter)} × ${r1(bay.depth)} mm) under a ${r1(bay.deckThickness)} mm deck. ` +
+        `2 × ${w.model} sleeves stand on the tray floor (${r1(s0.len)} × ${r1(s0.wid)} × ${r1(s0.hgt)} mm inside, ${r1(w.clearance)} mm/side, 0.5 mm crush ribs gripping 0.25 mm per side), open upward so the levers stay exposed with the deck off. ` +
         `One connector per conductor (cord ridged/neutral → socket silver/neutral; smooth/hot → brass/hot). Strip ${info.strip} mm; push the wires in until they bottom out.`,
-      bay.hole.kind === 'insert'
-        ? `Cover: 3 × M3 × ${screwLength(bay.hole, bay.coverThickness, hw.insert.length)} mm screws into M3×5×4 heat-set inserts (Ø${r1(bay.hole.diameter)} × ${r1(bay.hole.depth)} mm bores, ${r1(bay.hole.chamfer)} mm lead-in) in the ceiling bosses. ` +
-            `Cord exit ${r1(bay.exit.width)} × ${r1(bay.exit.height)} mm through the wall at ${r1(b.cordExitAngle)}°; the cord rises through the centre bore.`
-        : `Cover: 3 × M${r1(bay.hole.screw)} self-tapping screws, ≥ ${screwLength(bay.hole, bay.coverThickness, hw.insert.length)} mm long, into Ø${r1(bay.hole.diameter)} mm pilots. ` +
-            `Cord exit ${r1(bay.exit.width)} × ${r1(bay.exit.height)} mm through the wall at ${r1(b.cordExitAngle)}°; the cord rises through the centre bore.`,
+      `Assembly: wire the connectors on the tray (slide each in from the outer end toward the lamp centre), feed the cord through the exit (${r1(bay.exit.width)} × ${r1(bay.exit.height)} mm at ${r1(b.cordExitAngle)}°) and up the centre bore, lower the cup + deck onto the tray, then drive the 4 base screws from below through the floor pillars. ` +
+        'Service: remove the 4 screws and lift the deck + cup off.',
     );
     if (w.model === '2273-202')
       notes.push('2273-202 is rated for SOLID wire only — cord-set and socket leads are stranded: use 221-412 lever-nuts instead.');
@@ -718,15 +730,24 @@ function buildBaseSolid(
         ? `M3×5×4 heat-set insert bores Ø${r1(c.hole.diameter)} × ${r1(c.hole.depth)} mm`
         : `Ø${r1(c.hole.diameter)} mm pilot holes ${r1(c.hole.depth)} mm deep for M${r1(c.hole.screw)} self-tapping screws`;
     if (c.inBay) {
-      // the bar floats inside the bay below the ceiling; the holes start at the ceiling underside
+      // pedestals standing on the tray floor, bores opening upward at the pedestal top (the bar's plate sits on them)
+      const pedestalTop = c.z + c.reach;
+      const zf = zb + layout.bay!.floor;
       for (const side of [-1, 1]) {
         const px = c.x + across[0] * c.screwOffset * side;
         const py = c.y + across[1] * c.screwOffset * side;
-        const pilot = fastenerBore(m, c.hole, px, py, c.z + c.reach);
+        const pedestal = bore(m, c.hole.bossDiameter, zf - 0.3, pedestalTop, px, py, seg);
+        solid = solid.add(pedestal);
+        pedestal.delete();
+        // never bore through the tray underside: keep ≥ 1 mm of floor under the blind end
+        const pilotHole = { ...c.hole, depth: Math.min(c.hole.depth, pedestalTop - zb - 1) };
+        const pilot = fastenerBoreUp(m, pilotHole, px, py, pedestalTop);
         solid = solid.subtract(pilot);
         pilot.delete();
       }
-      notes.push(`Cord clamp inside the wiring bay, between the cord exit and the sleeves: two ${holeNote} in the ceiling.`);
+      notes.push(
+        `Cord clamp on the tray floor between the cord exit and the sleeves, pressing the cord down: two ${holeNote} in floor pedestals — screwed down from above, so tighten it while the deck is off.`,
+      );
     } else {
       const recess = orientedBlock(m, c.x, c.y, zb - THROUGH, c.along, c.barWidth + 2 * CLAMP_FIT, c.barLen + 2 * CLAMP_FIT, c.thickness + THROUGH);
       solid = solid.subtract(recess);
@@ -796,6 +817,8 @@ function buildCupSolid(
       const f = j / CONE_SEGS;
       profile.push([plan.zShelf + (plan.coneEnd - plan.zShelf) * f, rBore + (rCav - rBore) * f]);
     }
+    // straight land under the plate: the plate underside bridges ≤ ~1 mm of vertical wall, not a wide flat ceiling
+    profile.push([plan.plateBottom - Math.max(0.8, plateT * 0.3), rCav]);
     profile.push([plan.plateBottom, rCav]);
   } else {
     profile.push([plan.plateBottom, Math.max(rCav, rBore)]);
@@ -804,34 +827,44 @@ function buildCupSolid(
     loftSolid(m, profile.map(([z, r]) => ringAt(circleSection, r * 2, z, phis, 0, 0, cx, cy))),
   );
 
-  // Top-plate hole: skirt (ring mode) or nipple. Snap-in anti-rotation lugs are cylinder-minus-box leftovers, so the
-  // cutter itself leaves two keys standing in the hole at world ±90°.
-  let plateHole = bore(m, plan.plateHoleD, plan.plateBottom - THROUGH, layout.cupTop + THROUGH, cx, cy, seg);
-  if (plan.lugBite > 0) {
-    const R = plan.plateHoleD / 2;
-    const b = plan.lugBite;
-    const chord = 2 * R * Math.sin((12.5 * Math.PI) / 180);
-    // Lower block: full bite; upper 0.8 mm: half bite, so the socket's rim cams in over a lead-in step.
-    const lowH = plateT - 0.6;
-    const lugs: Manifold[] = [];
-    for (const side of [-1, 1]) {
-      const along: [number, number] = [0, side];
-      for (const [depth, z0, h] of [
-        [b, plan.plateBottom - 0.2, lowH],
-        [b / 2, layout.cupTop - 0.8, 1.0],
-      ]) {
-        lugs.push(orientedBlock(m, cx, cy + side * (R - depth / 2 + 0.5), z0, along, depth + 1, chord, h));
-      }
-    }
-    const lugUnion = m.Manifold.union(lugs);
-    lugs.forEach((l) => l.delete());
-    const cutter = plateHole.subtract(lugUnion);
-    lugUnion.delete();
-    plateHole.delete();
-    plateHole = cutter;
-  }
+  // Top-plate hole: skirt (ring mode) or nipple.
+  const plateHole = bore(m, plan.plateHoleD, plan.plateBottom - THROUGH, layout.cupTop + THROUGH, cx, cy, seg);
   solid = solid.subtract(plateHole);
   plateHole.delete();
+
+  if (plan.wingSlot) {
+    // Snap-in wing slots: a rib pair flanks each spring wing (wings at world ±X), running from the cup top through the
+    // plate and down the cavity wall to the top of the straight bore, so the wing rides in a slot and the socket can
+    // neither rotate nor tilt. Ribs are added wall material: blocks whose inner face is set so even the far corner
+    // intrudes `bite` mm radially into the plate hole, clipped to a cylinder that ends inside the cup wall.
+    const R = plan.plateHoleD / 2;
+    const ribT = 2;
+    const edge = plan.wingSlot.width / 2; // slot-facing rib face
+    const xIn = Math.sqrt(Math.max(0.01, (R - plan.wingSlot.bite) ** 2 - (edge + ribT) ** 2));
+    const rClip = Math.max(rCav, R) + 0.6;
+    const xLen = rClip + 1 - xIn;
+    const zLow = plan.zShelf;
+    const zLead = layout.cupTop - 0.8;
+    const ribs: Manifold[] = [];
+    for (const sx of [-1, 1]) {
+      for (const sy of [-1, 1]) {
+        const xc = cx + sx * (xIn + xLen / 2);
+        // full-thickness rib up to the lead-in; the top 0.8 mm is 0.6 mm thinner on the slot side so the slot flares open
+        ribs.push(orientedBlock(m, xc, cy + sy * (edge + ribT / 2), zLow, [1, 0], xLen, ribT, zLead - zLow));
+        ribs.push(
+          orientedBlock(m, xc, cy + sy * (edge + 0.6 + (ribT - 0.6) / 2), zLead - 0.01, [1, 0], xLen, ribT - 0.6, layout.cupTop - zLead + 0.01),
+        );
+      }
+    }
+    const ribUnion = m.Manifold.union(ribs);
+    ribs.forEach((r) => r.delete());
+    const clip = bore(m, 2 * rClip, zLow - THROUGH, layout.cupTop + THROUGH, cx, cy, seg);
+    const clipped = ribUnion.intersect(clip);
+    ribUnion.delete();
+    clip.delete();
+    solid = solid.add(clipped);
+    clipped.delete();
+  }
 
   if (plan.nutPocket) {
     const np = plan.nutPocket;
@@ -843,13 +876,25 @@ function buildCupSolid(
     pocket.delete();
   }
 
-  // No stem: the cupJoint spigot is carried by the cup and seats in the base.
+  // No stem: the cupJoint spigot is carried by the cup and seats in the base. With the split wiring-bay base it is
+  // enlarged to carry 4 screw inserts in its end face, which the base screws pull up against.
   if (st.height <= 0 && st.cupJoint.kind === 'spigot' && cupSpigotLength > 0) {
-    const dOut = spigotDiameter(cordD, st.cupJoint);
+    const bay = layout.bay;
+    const dOut = bay ? 2 * bay.spigotRadius : spigotDiameter(cordD, st.cupJoint);
     solid = solid.add(m.Manifold.cylinder(cupSpigotLength, dOut / 2, -1, seg).translate(cx, cy, plan.zBot - cupSpigotLength));
     const cordBore = bore(m, cordD, plan.zBot - cupSpigotLength - THROUGH, plan.zBot + THROUGH, cx, cy, seg);
     solid = solid.subtract(cordBore);
     cordBore.delete();
+    if (bay) {
+      for (const s of bay.screws) {
+        const tool =
+          bay.hole.kind === 'insert'
+            ? fastenerBore(m, bay.hole, s.x, s.y, bay.cupScrewMouthZ)
+            : bore(m, bay.hole.diameter, bay.cupScrewMouthZ - THROUGH, bay.cupScrewMouthZ + Math.min(bay.hole.depth, cupSpigotLength - 0.5), s.x, s.y, 48);
+        solid = solid.subtract(tool);
+        tool.delete();
+      }
+    }
   }
   return solid;
 }
@@ -920,7 +965,10 @@ export function buildStructure(m: ManifoldToplevel, p: LampParams, layout: Layou
   }
   let cupDownSpigot = 0;
   if (!hasStem && !cupFused) {
-    cupDownSpigot = clamp(st.cupJoint.spigotLength, 2, Math.max(2, layout.baseTop - 2.5));
+    // the split wiring-bay base fixes the engagement: the screw inserts sit in the spigot end face
+    cupDownSpigot = layout.bay
+      ? layout.baseTop - layout.bay.cupScrewMouthZ
+      : clamp(st.cupJoint.spigotLength, 2, Math.max(2, layout.baseTop - 2.5));
     if (cupDownSpigot < st.cupJoint.spigotLength - 1e-6)
       cupNotes.push(
         `Cup spigot engagement limited to ${r1(cupDownSpigot)} mm by the base height — lengthen the base or shorten the spigot.`,
@@ -934,7 +982,10 @@ export function buildStructure(m: ManifoldToplevel, p: LampParams, layout: Layou
       : { diameter: spigotHoleDiameter(stemBoreD, st.baseJoint), depth: baseSpigot + 0.5 }
     : cupFused
       ? null
-      : { diameter: spigotHoleDiameter(cordD, st.cupJoint), depth: cupDownSpigot + 0.5 };
+      : {
+          diameter: layout.bay ? 2 * layout.bay.spigotRadius + Math.max(0.05, st.cupJoint.clearance) : spigotHoleDiameter(cordD, st.cupJoint),
+          depth: cupDownSpigot + 0.5,
+        };
   let baseSolid = buildBaseSolid(m, p, layout, phis, seg, baseHole, baseNotes);
 
   let stemSolid: Manifold | null = null;
@@ -987,8 +1038,8 @@ export function buildStructure(m: ManifoldToplevel, p: LampParams, layout: Layou
     cupNotes.push(
       `Snap-in socket: Ø${r1(cupPlan.plateHoleD)} mm hole; the clip wings grip ${r1(grip)} mm of plate${layout.hubThickness > 0 ? ' + hub' : ''} ` +
         `(rated ${r1(hw.socket.gripMin)}–${r1(hw.socket.gripMax)} mm). Wire the socket leads to the cord first (splice connectors), then push the socket in from above until both wings click.` +
-        (cupPlan.lugBite > 0
-          ? ` Two anti-rotation lugs bite ${r1(cupPlan.lugBite)} mm into the hole at ±90°; the socket cams over them on insertion and they stop it spinning when a bulb is screwed in.`
+        (cupPlan.wingSlot
+          ? ` Four full-height ribs form two ${r1(cupPlan.wingSlot.width)} mm wing slots (±X) — the spring wings ride in them, keying the socket against rotation and tilt.`
           : ''),
     );
   } else {
@@ -1048,6 +1099,34 @@ export function buildStructure(m: ManifoldToplevel, p: LampParams, layout: Layou
     } else if (hasStem) {
       emit('base', 'Base', baseSolid, false, baseNotes);
       emit('stem', 'Stem', stemSolid!, false, stemNotes);
+    } else if (layout.bay) {
+      // Split service base: a floor-down tray and a top-face-down deck, clamped together with the cup by 4 screws.
+      const bay = layout.bay;
+      const zb = layout.baseBottom;
+      const deckBottom = zb + bay.depth;
+      let tray = baseSolid.trimByPlane([0, 0, -1], -deckBottom);
+      const deck = baseSolid.trimByPlane([0, 0, 1], deckBottom);
+      baseSolid.delete();
+      // screw clearance (Ø3.4) from the underside up through each pillar, with a flat-head countersink in the floor
+      for (const s of bay.screws) {
+        const hole = bore(m, 3.4, zb - THROUGH, bay.cupScrewMouthZ - 0.2 + THROUGH, s.x, s.y, 24);
+        const csk = m.Manifold.cylinder(1.2, 3.4, 1.7, 48).translate(s.x, s.y, zb);
+        const apron = m.Manifold.cylinder(THROUGH, 3.4, -1, 48).translate(s.x, s.y, zb - THROUGH);
+        tray = tray.subtract(hole).subtract(csk).subtract(apron);
+        hole.delete();
+        csk.delete();
+        apron.delete();
+      }
+      const trayNotes = [...baseNotes, 'Prints floor-down; no supports needed.'];
+      const deckNotes = [
+        'Carries the shade seat and the cup hole; the cup clamps it down against the tray wall.',
+        'Prints with the top face on the bed; no supports needed.',
+      ];
+      emit('base', 'Base tray', tray, false, trayNotes);
+      emit('base', 'Base deck', deck, true, deckNotes);
+      cupNotes.push(
+        `4 × M3 × ${screwLength(bay.hole, bay.cupScrewMouthZ - zb, hw.insert.length)} mm screws from below (through the tray floor and pillars) into ${hw.fastening === 'insert' ? 'heat-set inserts' : 'Ø' + r1(bay.hole.diameter) + ' mm pilots'} in the cup spigot; they clamp tray, deck and cup into one stack.`,
+      );
     } else {
       // Legs splay downward: print a legged base top-down unless a raised lip sits on top.
       const flip = p.base.legs >= 3 && p.shade.mount !== 'lip';
@@ -1056,7 +1135,6 @@ export function buildStructure(m: ManifoldToplevel, p: LampParams, layout: Layou
     emit('cup', 'Socket cup', cupSolid, true, cupNotes);
   }
   if (layout.clamp) parts.push(buildClampBar(m, p, layout.clamp));
-  if (layout.bay) parts.push(buildCover(m, p, layout, layout.bay));
   return parts;
 }
 
@@ -1069,15 +1147,18 @@ function buildClampBar(m: ManifoldToplevel, p: LampParams, c: StrainClamp): Soli
   const zb = c.z;
   const across: [number, number] = [-c.along[1], c.along[0]];
   const d = c.hole.screw;
-  const len = screwLength(c.hole, c.reach, hw.insert.length);
-  const ridgeH = 0.6;
+  // in the bay the bar's plate sits on the pedestals (ridges hang below it, onto the cord); the screw grips the plate only
+  const len = screwLength(c.hole, c.inBay ? c.thickness - CLAMP_RIDGE : c.reach, hw.insert.length);
+  const ridgeH = CLAMP_RIDGE;
   // the plate stops ridgeH short so the ridges (not the plate) apply the squeeze
   const plateT = c.thickness - ridgeH;
-  const parts: Manifold[] = [orientedBlock(m, c.x, c.y, zb, c.along, c.barWidth, c.barLen, plateT)];
+  const plateZ = c.inBay ? zb + ridgeH : zb;
+  const ridgeZ = c.inBay ? zb : zb + plateT - 0.01;
+  const parts: Manifold[] = [orientedBlock(m, c.x, c.y, plateZ, c.along, c.barWidth, c.barLen, plateT)];
   const ridgeLen = (hw.prewiredCord ? hw.plugWidth : hw.cordWidth) + 2 * CORD_CLEAR;
   for (const side of [-1, 1]) {
     const off = (side * c.barWidth) / 4;
-    parts.push(orientedBlock(m, c.x + c.along[0] * off, c.y + c.along[1] * off, zb + plateT - 0.01, across, ridgeLen, 1.2, ridgeH + 0.01));
+    parts.push(orientedBlock(m, c.x + c.along[0] * off, c.y + c.along[1] * off, ridgeZ, across, ridgeLen, 1.2, ridgeH + 0.01));
   }
   let bar = m.Manifold.union(parts);
   for (const side of [-1, 1]) {
@@ -1089,58 +1170,14 @@ function buildClampBar(m: ManifoldToplevel, p: LampParams, c: StrainClamp): Soli
     id: 'clamp',
     label: 'Cord clamp bar',
     solid: bar,
-    printFlip: false,
+    printFlip: c.inBay,
     notes: [
       `${r1(c.barLen)} × ${r1(c.barWidth)} × ${r1(c.thickness)} mm bar; ridges squeeze the cord by ${r1(hw.strainRelief.squeeze)} mm. ` +
         (c.hole.kind === 'insert'
-          ? `Fasten with 2 × M3 × ${len} mm screws into the heat-set inserts${c.inBay ? ' (driven up into the bay ceiling)' : ''} — snug, do not crush the cord.`
-          : `Fasten with 2 × M${r1(d)} (#4 for M3) self-tapping pan-head screws, ≥ ${len} mm long${c.inBay ? ' (driven up into the bay ceiling)' : ''} — snug, do not crush the cord.`),
+          ? `Fasten with 2 × M3 × ${len} mm screws into the heat-set inserts${c.inBay ? ' (driven down into the tray-floor pedestals while the deck is off)' : ''} — snug, do not crush the cord.`
+          : `Fasten with 2 × M${r1(d)} (#4 for M3) self-tapping pan-head screws, ≥ ${len} mm long${c.inBay ? ' (driven down into the tray-floor pedestals while the deck is off)' : ''} — snug, do not crush the cord.`),
       'Tie an Underwriters knot in the cord inside the socket as well: the clamp takes the pull at the base, the knot at the terminals.',
       'Prints flat, ridges up.',
     ],
   };
-}
-
-/**
- * Wiring-bay cover: a disc closing the bay mouth flush with the base underside, 3 clearance holes over the screw
- * bosses, and — when the base has felt-pad recesses — those recesses on its underside (the bay replaces them in the base).
- */
-function buildCover(m: ManifoldToplevel, p: LampParams, layout: Layout, bay: WiringBay): SolidPart {
-  const b = p.base;
-  const zb = layout.baseBottom;
-  const t = bay.coverThickness;
-  const seg = clamp(p.quality.radialSegments, 32, 128);
-  let cover = bore(m, bay.diameter - 0.4, zb, zb + t, layout.axisX, layout.axisY, seg);
-  for (const s of bay.screws) {
-    const hole = bore(m, bay.hole.screw + 0.4, zb - THROUGH, zb + t + THROUGH, s.x, s.y, 24);
-    cover = cover.subtract(hole);
-    hole.delete();
-  }
-  const notes = [
-    `Closes the wiring bay: Ø${r1(bay.diameter - 0.4)} × ${r1(t)} mm disc, 3 × Ø${r1(bay.hole.screw + 0.4)} mm screw holes (M${r1(bay.hole.screw)} ${bay.hole.kind === 'insert' ? 'into heat-set inserts' : 'self-tapping'}, pan-head, countersink optional).`,
-  ];
-  const legged = b.legs >= 3;
-  if (!legged && b.feetCount > 0 && b.feetDiameter > 0 && b.feetDepth > 0 && t - b.feetDepth >= 1.2) {
-    // pads spaced evenly around the cover (starting on the exit line, away from the screws), inset from its edge
-    const rCover = (bay.diameter - 0.4) / 2;
-    const rc = Math.max(0, rCover - Math.max(b.feetInset, b.feetDiameter / 2 + 2));
-    const exitA = b.cordExitAngle * DEG;
-    const centers: Array<[number, number]> = [];
-    for (let i = 0; i < b.feetCount; i++) {
-      const a = exitA + (i / b.feetCount) * TAU;
-      const x = layout.axisX + Math.cos(a) * rc;
-      const y = layout.axisY + Math.sin(a) * rc;
-      if (bay.screws.every((s) => Math.hypot(s.x - x, s.y - y) > bay.hole.screw / 2 + 0.2 + b.feetDiameter / 2 + 1))
-        centers.push([x, y]);
-    }
-    for (const [x, y] of centers) {
-      const rec = bore(m, b.feetDiameter, zb - THROUGH, zb + b.feetDepth, x, y, seg);
-      cover = cover.subtract(rec);
-      rec.delete();
-    }
-    if (centers.length > 0)
-      notes.push(`Felt pads: ${centers.length} × Ø${r1(b.feetDiameter)} mm, ${r1(b.feetDepth)} mm recesses on the underside — the pads go here, not on the base.`);
-  }
-  notes.push('Prints flat.');
-  return { id: 'cover', label: 'Wiring bay cover', solid: cover, printFlip: false, notes };
 }

@@ -21,10 +21,10 @@ Build a static, browser-only (Vite + React + TypeScript) parametric table-lamp g
    for bought wooden dowels / metal rods (measured diameter + diametral clearance, insertion depth,
    sleeve wall); the tool reports the dowel cut length and mitre angle and adds the rod weight to the
    stability check.
-   Optional bought-part fittings: a kettle-style **wiring bay** in the base underside, closed by a screwed-on
-   **cover plate**, with slide-in sleeves for two 2-conductor WAGO splice connectors on its ceiling (levers
-   facing the cover), and a **screw-down cord clamp** (printed bar + two self-tapping screws) inside the bay or
-   across the base cord channel.
+   Optional bought-part fittings: a **split wiring base** — a floor-down tray carrying sleeves for two 2-conductor
+   WAGO splice connectors (levers up) under a top-face-down deck, joined with the socket cup by 4 screws from
+   below — and a **screw-down cord clamp** (printed bar + two screws) on the tray floor or across the base cord
+   channel.
    Optional **diffuser liner**: a translucent inner wall standing on the hub or base top inside the shade
    with an air gap, printed in translucent or white filament.
 3. **Shapes**: base, stem, cup and shade cross-sections can be circle, regular polygon (3+ sides, so
@@ -66,10 +66,11 @@ Thread diameters and ring sizes vary by vendor → **all socket dimensions are e
 | Rating | 660 W / 250 V | 75 W / 125 V | B&P, Paxton |
 
 The cup plate (plus the spider/fitter hub, which sits under the face) is the panel: the layout fails if its
-thickness is outside the grip range. The cavity clears the body and the spread wings. Two printed
-**anti-rotation lugs** at ±90° intrude into the hole (cylinder-minus-box cutter; 45° lead-in on the upper
-0.8 mm) so the socket cams over them on insertion and cannot spin when a bulb is screwed in; skipped when the
-body nearly fills the hole.
+thickness is outside the grip range. The cavity clears the body and the spread wings. **Wing slots**: four
+full-height ribs (two rib pairs, `wingWidth` + 2·`wingTolerance` apart, default 8 + 0.8 mm) flank the spring
+wings at world ±X and run from the cup top through the plate and down the cavity wall to the top of the straight
+bore (45° lead-in on the upper 0.8 mm), so each wing rides in a slot and the socket can neither spin when a bulb
+is screwed in nor tilt. The ribs intrude `(hole − body)/2 − 0.6` mm (0.4–1.6) past the hole wall.
 
 ### Splice connectors (WAGO, UL 486C)
 
@@ -81,15 +82,21 @@ body nearly fills the hole.
 Cord-set and socket leads are stranded, so 221-412 is the default and the tool warns on 2273-202. Strip
 11 mm.
 
-**Wiring bay** (kettle-style service bay): a round cavity in the base underside closed by a **screwed-on
-cover plate** (3 self-tapping screws into Ø0.8·d pilots in bosses on the bay ceiling; the cover also carries
-the felt-pad recesses). Two **slide-in sleeves** are molded on the ceiling either side of the cord line —
-U-channels with side walls, an end stop at the lamp-centre end and two 0.3 mm crush ribs — open at the outer
-end and open downward: slide each connector in toward the centre, **levers down**, so they are fully exposed
-(the lever window) with the cover off. The cord enters through an oval exit in the bay wall, hugging the
-ceiling; with the cord clamp enabled the bar lives inside the bay between the exit and the sleeves, screwed up
-into the ceiling. Solid bases only; no weight pocket (they share the underside). Layout issues report a base
-too low (≥ connector height + cover + ceiling) or too small for the bay.
+**Split base** (tray + deck, replacing a solid base with an underside bay, which would need supports): the base is
+printed as a bottom **tray** (3 mm floor, outer wall, connector sleeves and four screw pillars; prints floor-down)
+and a top **deck** (≥ 4 mm slab carrying the shade lip/groove and the cup hole; prints top-face-down). There is no
+separate cover part — the tray floor is the lamp's bottom (felt-pad recesses are on the tray rim). Two **slide-in
+sleeves** stand on the floor either side of the cord line — U-channels with side walls, an end stop at the
+lamp-centre end and two 0.5 mm crush ribs (grip = sleeve clearance − 0.25 mm per side) — open at the outer end
+and open upward, so the levers are exposed with the deck off. Sleeves are spaced to clear the cup's enlarged
+spigot by ≥ 1 mm. **Four M3 screws** (heat-set inserts in the cup spigot end face, or self-tapping pilots) are driven
+from below through the floor and pillars and clamp tray, deck and socket cup into one stack. Assembly: wire the
+connectors on the tray, feed the cord through the oval exit (hugging the deck underside) and the centre bore,
+lower the cup + deck, drive the screws. Service: remove the 4 screws and lift the deck + cup off. With the cord
+clamp enabled the bar lies on the tray floor pressing the cord down, screwed into floor pedestals. Needs a solid,
+stem-less base with a spigot cup joint (the cup seats directly on the deck); no weight pocket. Layout issues
+report a base too low (≥ connector height + tray floor + deck), a spigot too short for the screws, or a base too
+small.
 
 ### Cord strain relief
 

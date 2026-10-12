@@ -9,8 +9,7 @@ export const PART_COLORS: Record<PartId, number> = {
   fitter: 0xc9785a,
   diffuser: 0xf4f1ea,
   clamp: 0x7a8494,
-  cover: 0x9aa3ad,
 };
 
 /** Bottom → top order of the parts; the exploded view offsets each by its index. */
-export const PART_ORDER: PartId[] = ['clamp', 'cover', 'base', 'stem', 'cup', 'fitter', 'diffuser', 'shade'];
+export const PART_ORDER: PartId[] = ['clamp', 'base', 'stem', 'cup', 'fitter', 'diffuser', 'shade'];

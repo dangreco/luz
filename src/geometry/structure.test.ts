@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { computeLayout, fastenerHole, screwLength } from '../model/layout';
 import { socketPreset } from '../model/hardware';
 import { DEFAULT_PARAMS, type LampParams } from '../model/params';
+import { sectionRadius } from '../model/section';
 import { buildStructure } from './structure';
 import { loadManifold, type Manifold, type ManifoldToplevel } from './wasm';
 
@@ -74,13 +75,13 @@ describe('dowel leg sockets', () => {
   });
 });
 
-describe('snap-in socket anti-rotation lugs', () => {
+describe('snap-in socket wing slots', () => {
   let m: ManifoldToplevel;
   beforeAll(async () => {
     m = await loadManifold();
   });
 
-  it('leaves two lugs in the plate hole at ±90° and keeps the hole open between them', () => {
+  it('flanks each spring wing with a full-height rib pair, leaving the wing slot and the body path open', () => {
     const p = structuredClone(DEFAULT_PARAMS);
     p.hardware.socketMount = 'snap';
     p.hardware.socket = socketPreset('E26', 'snap');
@@ -92,23 +93,82 @@ describe('snap-in socket anti-rotation lugs', () => {
 
     const sock = p.hardware.socket;
     const R = (sock.snapHoleDiameter + p.cup.clearance) / 2;
-    const bite = Math.min(1.2, Math.max(0.4, (sock.snapHoleDiameter - sock.bodyDiameter) / 2 - 0.2));
-    const rProbe = R - bite / 2;
-    const z = layout.cupTop - p.cup.plateThickness / 2;
-    const occ = (x: number, y: number): number => {
-      const probe = m.Manifold.cube([0.4, 0.4, 0.4], true).translate(x, y, z);
+    const bite = Math.min(1.6, Math.max(0.4, (sock.snapHoleDiameter - sock.bodyDiameter) / 2 - 0.6));
+    const edge = sock.wingWidth / 2 + sock.wingTolerance; // slot half-width
+    const xIn = Math.sqrt((R - bite) ** 2 - (edge + 2) ** 2); // rib inner face
+    const occ = (x: number, y: number, z: number): number => {
+      const probe = m.Manifold.cube([0.4, 0.4, 0.4], true).translate(layout.axisX + x, layout.axisY + y, z);
       const v = cup.solid.intersect(probe).volume();
       probe.delete();
       return v;
     };
-    expect(occ(layout.axisX, layout.axisY + rProbe)).toBeGreaterThan(0);
-    expect(occ(layout.axisX, layout.axisY - rProbe)).toBeGreaterThan(0);
-    expect(occ(layout.axisX + rProbe, layout.axisY)).toBe(0);
-    expect(occ(layout.axisX - rProbe, layout.axisY)).toBe(0);
+    // plate, and the lower cavity wall down to the top of the straight bore
+    const zPlate = layout.cupTop - p.cup.plateThickness / 2;
+    const zWall = layout.cupTop - p.cup.plateThickness - 6;
+    for (const z of [zPlate, zWall]) {
+      for (const sx of [-1, 1]) {
+        const x = sx * (xIn + 0.5);
+        // both ribs of the pair stand inside the hole…
+        expect(occ(x, edge + 1, z)).toBeGreaterThan(0);
+        expect(occ(x, -edge - 1, z)).toBeGreaterThan(0);
+        // …and the wing slot between them is open
+        expect(occ(x, 0, z)).toBe(0);
+        expect(occ(x, edge - 0.4, z)).toBe(0);
+      }
+      // the socket body passes at the diagonals and at ±Y
+      const d = (R - bite - 0.3) * Math.SQRT1_2;
+      expect(occ(d, d, z)).toBe(0);
+      expect(occ(-d, -d, z)).toBe(0);
+      expect(occ(0, R - bite - 0.3, z)).toBe(0);
+      expect(occ(0, -(R - bite - 0.3), z)).toBe(0);
+    }
+  });
+
+  it('sizes the slot from wing width + tolerance', () => {
+    const p = structuredClone(DEFAULT_PARAMS);
+    p.hardware.socketMount = 'snap';
+    p.hardware.socket = { ...socketPreset('E26', 'snap'), wingWidth: 12, wingTolerance: 0.2 };
+    p.stem.height = 0;
+    p.quality.radialSegments = 96;
+    const layout = computeLayout(p);
+    const cup = buildStructure(m, p, layout).find((s) => s.id === 'cup')!;
+    const sock = p.hardware.socket;
+    const R = (sock.snapHoleDiameter + p.cup.clearance) / 2;
+    const bite = Math.min(1.6, Math.max(0.4, (sock.snapHoleDiameter - sock.bodyDiameter) / 2 - 0.6));
+    const edge = 6.2;
+    const xIn = Math.sqrt((R - bite) ** 2 - (edge + 2) ** 2);
+    const z = layout.cupTop - p.cup.plateThickness / 2;
+    const occ = (y: number): number => {
+      const probe = m.Manifold.cube([0.4, 0.4, 0.4], true).translate(layout.axisX + xIn + 0.5, layout.axisY + y, z);
+      const v = cup.solid.intersect(probe).volume();
+      probe.delete();
+      return v;
+    };
+    expect(occ(5.5)).toBe(0); // inside the 12.4 mm slot
+    expect(occ(edge + 1)).toBeGreaterThan(0); // first rib
   });
 });
 
-describe('wiring bay with screwed cover', () => {
+describe('cup overhang', () => {
+  let m: ManifoldToplevel;
+  beforeAll(async () => {
+    m = await loadManifold();
+  });
+
+  it('keeps the cavity flare within 45° of vertical', () => {
+    const p = structuredClone(DEFAULT_PARAMS);
+    p.hardware.socketMount = 'snap';
+    p.hardware.socket = socketPreset('E26', 'snap');
+    p.stem.height = 0;
+    p.quality.radialSegments = 96;
+    const layout = computeLayout(p);
+    const cup = buildStructure(m, p, layout).find((s) => s.id === 'cup')!;
+    expect(cup.solid.status()).toBe('NoError');
+    expect(cup.notes.some((n) => /flare is steep/.test(n))).toBe(false);
+  });
+});
+
+describe('split wiring base (tray + deck)', () => {
   let m: ManifoldToplevel;
   beforeAll(async () => {
     m = await loadManifold();
@@ -132,6 +192,15 @@ describe('wiring bay with screwed cover', () => {
     return p;
   };
 
+  const build = (p: LampParams = bayLamp()) => {
+    const layout = computeLayout(p);
+    const parts = buildStructure(m, p, layout);
+    const tray = parts.find((s) => s.id === 'base' && s.label === 'Base tray')!;
+    const deck = parts.find((s) => s.id === 'base' && s.label === 'Base deck')!;
+    const cup = parts.find((s) => s.id === 'cup')!;
+    return { p, layout, bay: layout.bay!, parts, tray, deck, cup };
+  };
+
   it('lays out a bay with no layout problems', () => {
     const layout = computeLayout(bayLamp());
     expect(layout.issues).toEqual([]);
@@ -139,70 +208,99 @@ describe('wiring bay with screwed cover', () => {
     expect(layout.clamp?.inBay).toBe(true);
   });
 
-  it('cuts an open bay with solid sleeve walls, an open lever window, and a cover with 3 screw holes', () => {
-    const p = bayLamp();
-    const layout = computeLayout(p);
-    const bay = layout.bay!;
-    const parts = buildStructure(m, p, layout);
-    const base = parts.find((s) => s.id === 'base')!;
-    const cover = parts.find((s) => s.id === 'cover')!;
-    expect(base.solid.status()).toBe('NoError');
-    expect(cover.solid.status()).toBe('NoError');
-
-    const zb = layout.baseBottom;
-    const zc = zb + bay.depth; // ceiling underside
-    // (a) the bay is empty away from the sleeves and bosses: lamp axis is the cord bore, so probe beside the cord
-    // between the sleeves along the exit line
-    const s0 = bay.sleeves[0];
-    const across: [number, number] = [-s0.along[1], s0.along[0]];
-    const mid: [number, number, number] = [
-      layout.axisX + s0.along[0] * 2,
-      layout.axisY + s0.along[1] * 2,
-      zb + bay.depth / 2,
-    ];
-    expect(occupancy(base.solid, mid)).toBe(0);
-    // (b) a sleeve side wall is material just outside the slot
-    const wall: [number, number, number] = [
-      s0.x + across[0] * (s0.wid / 2 + 1),
-      s0.y + across[1] * (s0.wid / 2 + 1),
-      zc - s0.hgt / 2,
-    ];
-    expect(occupancy(base.solid, wall)).toBeGreaterThan(0);
-    // (c) the lever window is open: empty directly below the sleeve channel, at slot centre
-    for (const s of bay.sleeves) {
-      expect(occupancy(base.solid, [s.x, s.y, zc - s.hgt / 2])).toBe(0);
-      expect(occupancy(base.solid, [s.x, s.y, zb + bay.coverThickness + 0.5])).toBe(0);
-    }
-    // the ceiling above the sleeve is material
-    expect(occupancy(base.solid, [s0.x, s0.y, zc + 0.8])).toBeGreaterThan(0);
-    // (d) cover: a solid disc with a clear hole at every screw centre
-    expect(cover.solid.volume()).toBeGreaterThan(0);
-    expect(bay.screws).toHaveLength(3);
-    for (const s of bay.screws) {
-      expect(occupancy(cover.solid, [s.x, s.y, zb + bay.coverThickness / 2])).toBe(0);
-      // …and the boss above it is material with a pilot bore through its axis
-      expect(occupancy(base.solid, [s.x + bay.hole.bossDiameter / 2 - 0.8, s.y, zb + bay.coverThickness + 1])).toBeGreaterThan(0);
-    }
-    expect(occupancy(cover.solid, [layout.axisX + 8, layout.axisY, zb + bay.coverThickness / 2])).toBeGreaterThan(0);
+  it('splits the base into a tray and a deck at the deck underside, with no cover part', () => {
+    const { layout, bay, parts, tray, deck } = build();
+    expect(parts.filter((s) => s.id === 'base').map((s) => s.label)).toEqual(['Base tray', 'Base deck']);
+    expect(parts.some((s) => (s.id as string) === 'cover')).toBe(false);
+    expect(tray.solid.status()).toBe('NoError');
+    expect(deck.solid.status()).toBe('NoError');
+    const split = layout.baseBottom + bay.depth;
+    expect(tray.solid.boundingBox().max[2]).toBeCloseTo(split, 3);
+    expect(deck.solid.boundingBox().min[2]).toBeCloseTo(split, 3);
+    expect(deck.printFlip).toBe(true);
+    expect(tray.printFlip).toBe(false);
   });
 
-  it('puts the felt-pad recesses on the cover instead of the base', () => {
-    const p = bayLamp();
-    const layout = computeLayout(p);
-    const bay = layout.bay!;
-    const parts = buildStructure(m, p, layout);
-    const base = parts.find((s) => s.id === 'base')!;
-    const cover = parts.find((s) => s.id === 'cover')!;
-    expect(base.notes.some((n) => /Felt pads/.test(n))).toBe(false);
-    expect(cover.notes.some((n) => /Felt pads: 3/.test(n))).toBe(true);
-    // first pad sits on the exit line, inset from the cover edge: empty in the recess, material just above it
-    const exitA = (p.base.cordExitAngle * Math.PI) / 180;
-    const rc = (bay.diameter - 0.4) / 2 - Math.max(p.base.feetInset, p.base.feetDiameter / 2 + 2);
-    const x = layout.axisX + Math.cos(exitA) * rc;
-    const y = layout.axisY + Math.sin(exitA) * rc;
+  it('stands the sleeves on the tray floor with solid walls and an open lever window above', () => {
+    const { layout, bay, tray } = build();
+    const zf = layout.baseBottom + bay.floor;
+    const s0 = bay.sleeves[0];
+    const across: [number, number] = [-s0.along[1], s0.along[0]];
+    // the cord path between the sleeves is open
+    expect(occupancy(tray.solid, [layout.axisX + s0.along[0] * 2, layout.axisY + s0.along[1] * 2, zf + 3])).toBe(0);
+    for (const s of bay.sleeves) {
+      for (const side of [-1, 1]) {
+        // side wall just outside the slot is material
+        expect(occupancy(tray.solid, [s.x + side * across[0] * (s.wid / 2 + 1), s.y + side * across[1] * (s.wid / 2 + 1), zf + s.hgt / 2])).toBeGreaterThan(0);
+      }
+      // slot is empty, open above the sleeve, with the floor under it
+      expect(occupancy(tray.solid, [s.x, s.y, zf + s.hgt / 2])).toBe(0);
+      expect(occupancy(tray.solid, [s.x, s.y, zf + s.hgt + 0.5])).toBe(0);
+      expect(occupancy(tray.solid, [s.x, s.y, zf - 1])).toBeGreaterThan(0);
+    }
+  });
+
+  it('grips the connector with 0.5 mm ribs that interfere 0.25 mm per side', () => {
+    const { layout, bay, tray } = build();
+    const zf = layout.baseBottom + bay.floor;
+    const s = bay.sleeves[0];
+    const across: [number, number] = [-s.along[1], s.along[0]];
+    // a rib sits inside the slot wall line: material 0.2 mm in from the slot face, empty 0.8 mm in
+    const at = (lc: number): [number, number, number] => [s.x + across[0] * lc, s.y + across[1] * lc, zf + 2];
+    expect(occupancy(tray.solid, at(s.wid / 2 - 0.2), 0.05)).toBeGreaterThan(0);
+    expect(occupancy(tray.solid, at(s.wid / 2 - 0.8), 0.05)).toBe(0);
+  });
+
+  it('spaces the sleeves clear of the cup spigot', () => {
+    const { p, layout, bay, tray, cup } = build();
+    const zf = layout.baseBottom + bay.floor;
+    const s = bay.sleeves[0];
+    const across: [number, number] = [-s.along[1], s.along[0]];
+    const off = Math.hypot(s.x - layout.axisX, s.y - layout.axisY);
+    const innerFace = off - s.wid / 2 - 2; // SLEEVE_WALL
+    expect(innerFace).toBeGreaterThanOrEqual(bay.spigotRadius + 1 - 1e-6);
+    // the spigot is wide enough for the inserts and fills out to spigotRadius
+    expect(occupancy(cup.solid, [layout.axisX + across[0] * (bay.spigotRadius - 0.5), layout.axisY + across[1] * (bay.spigotRadius - 0.5), bay.cupScrewMouthZ + 1])).toBeGreaterThan(0);
+    // tray between the spigot and each sleeve is empty; the sleeve wall beyond the slot is material
+    for (const side of [-1, 1]) {
+      expect(occupancy(tray.solid, [layout.axisX + side * across[0] * (bay.spigotRadius + 0.5), layout.axisY + side * across[1] * (bay.spigotRadius + 0.5), zf + 4])).toBe(0);
+      expect(occupancy(tray.solid, [layout.axisX + side * across[0] * (off + s.wid / 2 + 1), layout.axisY + side * across[1] * (off + s.wid / 2 + 1), zf + 4])).toBeGreaterThan(0);
+    }
+    expect(p.hardware.wago.clearance).toBeGreaterThan(0);
+  });
+
+  it('clamps the cup with 4 screws: insert bores in the spigot, clearance holes through the tray floor', () => {
+    const { layout, bay, tray, cup } = build();
+    expect(bay.screws).toHaveLength(4);
     const zb = layout.baseBottom;
-    expect(occupancy(cover.solid, [x, y, zb + p.base.feetDepth / 2])).toBe(0);
-    expect(occupancy(cover.solid, [x, y, zb + bay.coverThickness - 0.5])).toBeGreaterThan(0);
+    for (const s of bay.screws) {
+      expect(occupancy(cup.solid, [s.x, s.y, bay.cupScrewMouthZ + 2.5], 0.15)).toBe(0);
+      expect(occupancy(cup.solid, [s.x + 2.4, s.y, bay.cupScrewMouthZ + 2.5], 0.15)).toBeGreaterThan(0);
+      // blind: material above the insert bore
+      expect(occupancy(cup.solid, [s.x, s.y, bay.cupScrewMouthZ + bay.hole.depth + 0.6], 0.15)).toBeGreaterThan(0);
+      // tray: Ø3.4 clearance through the floor and the pillar, printed wall beside it
+      expect(occupancy(tray.solid, [s.x, s.y, zb + bay.floor / 2], 0.15)).toBe(0);
+      expect(occupancy(tray.solid, [s.x, s.y, bay.cupScrewMouthZ - 2], 0.15)).toBe(0);
+      expect(occupancy(tray.solid, [s.x + 3, s.y, zb + bay.floor / 2], 0.15)).toBeGreaterThan(0);
+      expect(occupancy(tray.solid, [s.x + 3, s.y, bay.cupScrewMouthZ - 2], 0.15)).toBeGreaterThan(0);
+    }
+    // the pillar tops stop just under the spigot end face
+    const s = bay.screws[0];
+    expect(occupancy(tray.solid, [s.x + 3, s.y, bay.cupScrewMouthZ - 0.1], 0.05)).toBe(0);
+    expect(occupancy(tray.solid, [s.x + 3, s.y, bay.cupScrewMouthZ - 0.5], 0.05)).toBeGreaterThan(0);
+  });
+
+  it('puts the felt-pad recesses on the tray floor', () => {
+    const { p, layout, bay, tray, deck } = build();
+    expect(deck.notes.some((n) => /Felt pads/.test(n))).toBe(false);
+    expect(tray.notes.some((n) => /Felt pads: 3/.test(n))).toBe(true);
+    // first pad is at angle 0 on the underside, inset from the base edge
+    const rc = sectionRadius(p.base.section, 0) * p.base.size - p.base.feetInset;
+    const x = rc;
+    const y = 0;
+    const zb = layout.baseBottom;
+    expect(occupancy(tray.solid, [x, y, zb + p.base.feetDepth / 2])).toBe(0);
+    expect(occupancy(tray.solid, [x, y, zb + bay.floor - 0.5])).toBeGreaterThan(0);
   });
 
   describe('heat-set insert bores', () => {
@@ -218,50 +316,52 @@ describe('wiring bay with screwed cover', () => {
       expect(hole.bossDiameter).toBeCloseTo(8.2, 6);
     });
 
-    it('cuts an open, blind, chamfered bore with a printed wall at every bay boss and clamp screw', () => {
-      const p = bayLamp();
-      const layout = computeLayout(p);
-      const bay = layout.bay!;
+    it('cuts an open, blind, chamfered bore with a printed wall at every cup screw and clamp pedestal', () => {
+      const { layout, bay, tray, cup } = build();
+      expect(tray.solid.status()).toBe('NoError');
+      expect(cup.solid.status()).toBe('NoError');
       const clamp = layout.clamp!;
-      const base = buildStructure(m, p, layout).find((s) => s.id === 'base')!;
-      expect(base.solid.status()).toBe('NoError');
       const across: [number, number] = [-clamp.along[1], clamp.along[0]];
-      const sites: Array<{ x: number; y: number; mouth: number; hole: typeof bay.hole }> = [
-        ...bay.screws.map((s) => ({ x: s.x, y: s.y, mouth: layout.baseBottom + bay.coverThickness, hole: bay.hole })),
-        ...[-1, 1].map((side) => ({
-          x: clamp.x + across[0] * clamp.screwOffset * side,
-          y: clamp.y + across[1] * clamp.screwOffset * side,
-          mouth: clamp.z + clamp.reach,
-          hole: clamp.hole,
-        })),
-      ];
-      expect(sites).toHaveLength(5);
-      for (const { x, y, mouth, hole } of sites) {
+      const pedestalTop = clamp.z + clamp.reach;
+      // cup sites open downward from the spigot end face; clamp sites open upward from the pedestal top
+      const downSites = bay.screws.map((s) => ({ x: s.x, y: s.y, mouth: bay.cupScrewMouthZ, hole: bay.hole }));
+      const upSites = [-1, 1].map((side) => ({
+        x: clamp.x + across[0] * clamp.screwOffset * side,
+        y: clamp.y + across[1] * clamp.screwOffset * side,
+        top: pedestalTop,
+        hole: clamp.hole,
+      }));
+      for (const { x, y, mouth, hole } of downSites) {
         const r = hole.diameter / 2;
-        // bore open, surrounded by printed wall
-        expect(probe(base.solid, [x + r - 0.3, y, mouth + 2.5])).toBe(0);
-        expect(probe(base.solid, [x + r + 0.6, y, mouth + 2.5])).toBeGreaterThan(0);
-        // 45° lead-in: cone is open near the mouth, wall at the same radius higher up
-        expect(probe(base.solid, [x + r + 0.25, y, mouth + 0.1], 0.05)).toBe(0);
-        expect(probe(base.solid, [x + r + 0.25, y, mouth + 1.5], 0.05)).toBeGreaterThan(0);
-        // blind: material above the bore end
-        expect(probe(base.solid, [x, y, mouth + hole.depth + 0.6])).toBeGreaterThan(0);
+        expect(probe(cup.solid, [x + r - 0.3, y, mouth + 2.5])).toBe(0);
+        expect(probe(cup.solid, [x + r + 0.6, y, mouth + 2.5])).toBeGreaterThan(0);
+        expect(probe(cup.solid, [x + r + 0.25, y, mouth + 0.1], 0.05)).toBe(0);
+        expect(probe(cup.solid, [x + r + 0.25, y, mouth + 1.5], 0.05)).toBeGreaterThan(0);
+        expect(probe(cup.solid, [x, y, mouth + hole.depth + 0.6])).toBeGreaterThan(0);
+      }
+      for (const { x, y, top, hole } of upSites) {
+        const r = hole.diameter / 2;
+        expect(probe(tray.solid, [x + r - 0.3, y, top - 2.5])).toBe(0);
+        expect(probe(tray.solid, [x + r + 0.6, y, top - 2.5])).toBeGreaterThan(0);
+        // 45° lead-in at the pedestal top
+        expect(probe(tray.solid, [x + r + 0.25, y, top - 0.1], 0.05)).toBe(0);
+        expect(probe(tray.solid, [x + r + 0.25, y, top - 1.5], 0.05)).toBeGreaterThan(0);
+        // blind: material under the bore end
+        expect(probe(tray.solid, [x, y, top - hole.depth - 0.6])).toBeGreaterThan(0);
       }
     });
 
     it('keeps small Ø0.8·d pilots in self-tapping mode', () => {
       const p = bayLamp();
       p.hardware.fastening = 'selfTap';
-      const layout = computeLayout(p);
-      const bay = layout.bay!;
-      const base = buildStructure(m, p, layout).find((s) => s.id === 'base')!;
-      expect(base.solid.status()).toBe('NoError');
+      const { layout, bay, cup } = build(p);
+      expect(layout.issues).toEqual([]);
+      expect(cup.solid.status()).toBe('NoError');
       expect(bay.hole.kind).toBe('selfTap');
       expect(bay.hole.diameter).toBeCloseTo(2.4, 6);
-      const mouth = layout.baseBottom + bay.coverThickness;
       for (const s of bay.screws) {
-        expect(probe(base.solid, [s.x, s.y, mouth + 2])).toBe(0);
-        expect(probe(base.solid, [s.x + 1.5, s.y, mouth + 2])).toBeGreaterThan(0);
+        expect(probe(cup.solid, [s.x, s.y, bay.cupScrewMouthZ + 2])).toBe(0);
+        expect(probe(cup.solid, [s.x + 1.5, s.y, bay.cupScrewMouthZ + 2])).toBeGreaterThan(0);
       }
     });
 

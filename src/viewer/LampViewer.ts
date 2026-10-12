@@ -64,7 +64,7 @@ export const DEFAULT_VIEW_OPTIONS: ViewOptions = {
   showHardware: true,
   showUl: false,
   showBeams: false,
-  visible: { base: true, stem: true, cup: true, shade: true, fitter: true, diffuser: true, clamp: true, cover: true },
+  visible: { base: true, stem: true, cup: true, shade: true, fitter: true, diffuser: true, clamp: true },
 };
 
 /** Z gap between neighbouring parts in the exploded view, mm. */
@@ -385,22 +385,22 @@ export class LampViewer {
       const body = new MeshStandardMaterial({ color: 0xd8e4ee, roughness: 0.2, transparent: true, opacity: 0.8, clippingPlanes: [] });
       const lever = new MeshStandardMaterial({ color: 0xf08a24, roughness: 0.5, clippingPlanes: [] });
       const c = Math.max(0, w.clearance);
-      const zCeil = L.baseBottom + L.bay.depth;
+      const zFloor = L.baseBottom + L.bay.floor;
       for (const s of L.bay.sleeves) {
         const yaw = Math.atan2(s.along[1], s.along[0]);
-        // connector pushed against the end stop at the lamp-centre end of the sleeve, hanging from the ceiling
+        // connector pushed against the end stop at the lamp-centre end of the sleeve, standing on the tray floor
         const la = -s.len / 2 + c + w.depth / 2;
         const cx = s.x + s.along[0] * la;
         const cy = s.y + s.along[1] * la;
-        const zTop = zCeil - c;
+        const zBottom = zFloor + c;
         const mesh = new Mesh(new BoxGeometry(w.depth, w.width, w.height), body);
         mesh.rotation.z = yaw;
-        mesh.position.set(cx, cy, zTop - w.height / 2);
+        mesh.position.set(cx, cy, zBottom + w.height / 2);
         baseHardware.add(mesh);
-        // lever: the orange tab on the connector's underside, facing the cover
+        // lever: the orange tab on the connector's top, facing the open sleeve (the deck is lifted off)
         const tab = new Mesh(new BoxGeometry(w.depth * 0.45, w.width * 0.6, 1.6), lever);
         tab.rotation.z = yaw;
-        tab.position.set(cx, cy, zTop - w.height - 0.8);
+        tab.position.set(cx, cy, zBottom + w.height + 0.8);
         baseHardware.add(tab);
       }
     }
@@ -410,11 +410,14 @@ export class LampViewer {
       const seat = (x: number, y: number, zMouth: number): void => {
         baseHardware.add(new Mesh(zCylinder(ins.outerDiameter / 2, zMouth, zMouth + ins.length, x, y, 24), brass));
       };
-      if (L.bay) for (const s of L.bay.screws) seat(s.x, s.y, L.baseBottom + L.bay.coverThickness);
+      // brass inserts in the cup spigot end face (mouth down)
+      if (L.bay) for (const s of L.bay.screws) seat(s.x, s.y, L.bay.cupScrewMouthZ);
       if (L.clamp) {
         const c = L.clamp;
         const across: [number, number] = [-c.along[1], c.along[0]];
-        for (const side of [-1, 1]) seat(c.x + across[0] * c.screwOffset * side, c.y + across[1] * c.screwOffset * side, c.z + c.reach);
+        // in-bay clamp: inserts sit in the floor pedestals, flush with their tops; underside clamp: mouth at the roof
+        const zMouth = c.inBay ? c.z + c.reach - ins.length : c.z + c.reach;
+        for (const side of [-1, 1]) seat(c.x + across[0] * c.screwOffset * side, c.y + across[1] * c.screwOffset * side, zMouth);
       }
     }
     if (baseHardware.children.length > 0) {

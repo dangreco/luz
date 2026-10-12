@@ -36,8 +36,6 @@ export function cordBoreDiameter(hw: HardwareParams): number {
 
 const DEG = Math.PI / 180;
 
-/** Material the base keeps above the wiring bay so screws and pockets never break through the top. */
-export const POCKET_ROOF = 1.5;
 /** Min screw engagement in the printed base (self-tapping into plastic: ≥ 2–2.5 × the screw diameter). */
 const SCREW_ENGAGE = 2.5;
 /** Insert-mode screws are always M3 (the Voron M3×5×4 insert). */
@@ -113,47 +111,47 @@ function baseEdgeAlong(b: LampParams['base'], axisX: number, axisY: number, alon
   return Infinity;
 }
 
-/** Ceiling thickness of the wiring bay: carries the cover-screw holes (and the cord-clamp holes when enabled). */
-export function bayCeiling(hw: HardwareParams): number {
-  const cover = fastenerHole(hw, hw.wago.coverScrewDiameter);
-  const clampHole = hw.strainRelief.enabled ? fastenerHole(hw, hw.strainRelief.screwDiameter) : null;
-  return Math.max(POCKET_ROOF, cover.depth + 1, clampHole ? clampHole.depth + POCKET_ROOF : 0);
+/** Tray floor thickness of the split wiring-bay base. */
+export const BAY_FLOOR = 3;
+
+/** Deck thickness of the split wiring-bay base: the top slab carrying the shade seat and the cup hole. */
+export function bayDeckThickness(b: LampParams['base']): number {
+  return Math.max(4, b.topEdgeRadius > 0 ? b.topEdgeRadius + 2 : 0);
 }
 
-/** Cover plate thickness: thicker when it carries the felt-pad recesses. */
-export function bayCoverThickness(b: LampParams['base']): number {
-  const feet = b.legs < 3 && b.feetCount > 0 && b.feetDiameter > 0 && b.feetDepth > 0;
-  return feet ? 3 : 2.4;
-}
-
-/** Lowest base height that holds the connector sleeves, the cover plate and the ceiling. */
+/** Lowest base height that holds the tray floor, the connector sleeves and the deck. */
 export function minBayBaseHeight(p: LampParams): number {
   const w = p.hardware.wago;
-  return w.height + 2 * Math.max(0, w.clearance) + bayCoverThickness(p.base) + bayCeiling(p.hardware) + 0.5;
+  return w.height + 2 * Math.max(0, w.clearance) + bayDeckThickness(p.base) + BAY_FLOOR + 0.5;
 }
 
 /**
- * Kettle-style service bay in the base underside: a round cavity closed by a screwed-on cover plate. The splice
- * connectors slide into sleeves molded on the bay ceiling, levers facing down (away from their mount) so they are
- * fully exposed when the cover is off. Positions are world XY; `along` is the unit cord-exit direction.
+ * Split service base: a bottom **tray** (floor + outer wall, z up to `depth`) holding the splice connectors in sleeves
+ * standing on its floor, and a top **deck** (the slab above `depth`) carrying the shade seat. Four M3 screws from below
+ * pass through the tray floor into heat-set inserts in the socket cup's spigot and clamp tray, deck and cup together.
+ * Positions are world XY; `along` is the unit cord-exit direction.
  */
 export interface WiringBay {
   /** bay cavity, round, centred on the lamp axis */
   diameter: number;
-  /** cavity depth from the base underside up to the ceiling underside */
+  /** base underside up to the deck underside (the tray / deck split plane) */
   depth: number;
-  /** ceiling thickness (carries sleeves + screw bosses) */
-  ceiling: number;
-  /** cover plate thickness (sits flush in the cavity mouth) */
-  coverThickness: number;
-  /** two connector sleeves hanging from the ceiling; (x, y) = centre of the inner slot, which slides along `along`
-   *  and is open at its outer end; `len` / `wid` / `hgt` = inner slot length / width / height */
+  /** tray floor thickness */
+  floor: number;
+  /** deck slab thickness */
+  deckThickness: number;
+  /** world z of the cup insert mouths = the cup spigot end face */
+  cupScrewMouthZ: number;
+  /** outer radius of the (enlarged) cup spigot */
+  spigotRadius: number;
+  /** two connector sleeves standing on the floor; (x, y) = centre of the inner slot, which slides along `along`
+   *  and is open at its outer end and upward; `len` / `wid` / `hgt` = inner slot length / width / height */
   sleeves: Array<{ x: number; y: number; along: [number, number]; len: number; wid: number; hgt: number }>;
-  /** cover screw boss centres, 3 at 120° */
+  /** the 4 cup-screw positions */
   screws: Array<{ x: number; y: number }>;
-  /** cover screw holes in the ceiling bosses, mouth at the cover's top face */
+  /** cup-screw holes in the spigot end face (mouth at `cupScrewMouthZ`, opening downward) */
   hole: FastenerHole;
-  /** cord exit: a width × height box through the base wall along `along`, hugging the ceiling; (x, y) = its centre,
+  /** cord exit: a width × height box through the tray wall along `along`, hugging the deck underside; (x, y) = its centre,
    *  z = centre height, len = length along the exit direction */
   exit: { x: number; y: number; z: number; along: [number, number]; width: number; height: number; len: number };
 }
@@ -168,24 +166,30 @@ function wiringBay(
   const hw = p.hardware;
   const w = hw.wago;
   const b = p.base;
+  const st = p.stem;
   if (!w.enabled) return null;
   if (b.shellWall > 0) {
     issues.push('The wiring bay needs a solid base — set the hollow shell wall to 0 or disable the wiring bay.');
+    return null;
+  }
+  if (st.height > 0 || st.cupJoint.kind === 'fused') {
+    issues.push(
+      'The split wiring-bay base needs the socket cup seated directly on it — set the stem height to 0 with a spigot cup joint, or disable the wiring bay.',
+    );
     return null;
   }
   const legged = b.legs >= 3;
   if (!legged && b.weightPocketDiameter > 0)
     issues.push('The weight pocket sits inside the wiring bay — disable one of them.');
 
-  const hole = fastenerHole(hw, w.coverScrewDiameter);
-  const ceiling = bayCeiling(hw);
-  const coverThickness = bayCoverThickness(b);
+  const hole = fastenerHole(hw, INSERT_SCREW);
+  const deckT = bayDeckThickness(b);
   const c = Math.max(0, w.clearance);
   const hgt = w.height + 2 * c;
   const wid = w.width + 2 * c;
   const len = w.depth + 2 * c + 1;
-  const depth = b.height - ceiling;
-  if (depth < hgt + coverThickness + 0.5) {
+  const depth = b.height - deckT;
+  if (depth < BAY_FLOOR + hgt + 0.5) {
     issues.push(
       `Base too low for the wiring bay (needs ≥ ${minBayBaseHeight(p).toFixed(1)} mm) — raise the base or disable the bay.`,
     );
@@ -212,8 +216,13 @@ function wiringBay(
   const along: [number, number] = [Math.cos(exitA), Math.sin(exitA)];
   const across: [number, number] = [-along[1], along[0]];
   const cordD = cordBoreDiameter(hw);
-  // the cord runs between the sleeves, along the exit line
-  const off = wid / 2 + SLEEVE_WALL + cordD / 2 + 1;
+  // The cup spigot (enlarged to carry the 4 base-screw inserts) stands between the sleeves; clear it by ≥ 1 mm.
+  const rSpigot = Math.max(
+    cordD / 2 + Math.max(1.2, st.cupJoint.spigotWall),
+    cordD / 2 + 2 + hw.insert.outerDiameter + INSERT_WALL,
+  );
+  const off = wid / 2 + SLEEVE_WALL + Math.max(cordD / 2 + 1, rSpigot + 1);
+  const spigotLen = Math.min(Math.max(2, b.height - 2.5), Math.max(2, st.cupJoint.spigotLength));
   const sleeveR = Math.hypot(len / 2 + SLEEVE_STOP, off + wid / 2 + SLEEVE_WALL) + 2;
   if (diameter < Math.max(46, 2 * sleeveR)) {
     issues.push('The base is too small for the wiring bay — widen the base.');
@@ -229,27 +238,25 @@ function wiringBay(
     hgt,
   }));
 
-  // cover screws: 3 bosses at 120°, none on the exit line (clamp + cord) or across it (sleeves)
-  const bossD = hole.bossDiameter;
-  const rBoss = R - hole.bossDiameter / 2 - 3;
-  const screws = [60, 180, 300].map((deg) => ({
-    x: axisX + Math.cos(exitA + deg * DEG) * rBoss,
-    y: axisY + Math.sin(exitA + deg * DEG) * rBoss,
+  // Cup screws: 4 inserts in the cup spigot end face, ±63° / ±117° off the exit line, so the flat cord passes
+  // between the two pillars either side of the line on its way to the centre bore.
+  const rScrew = cordD / 2 + 2 + hw.insert.outerDiameter / 2;
+  const screws = [63, 117, 243, 297].map((deg) => ({
+    x: axisX + Math.cos(exitA + deg * DEG) * rScrew,
+    y: axisY + Math.sin(exitA + deg * DEG) * rScrew,
   }));
-  let bossClear = rBoss - bossD / 2 >= cordD / 2 + 1;
-  for (const s of screws) {
-    const la = (s.x - axisX) * along[0] + (s.y - axisY) * along[1];
-    const lc = (s.x - axisX) * across[0] + (s.y - axisY) * across[1];
-    const dx = Math.max(-len / 2 - SLEEVE_STOP - la, 0, la - len / 2);
-    const dy = Math.max(off - wid / 2 - SLEEVE_WALL - Math.abs(lc), 0, Math.abs(lc) - (off + wid / 2 + SLEEVE_WALL));
-    if (Math.hypot(dx, dy) < bossD / 2 + 1) bossClear = false;
-  }
-  if (!bossClear) {
-    issues.push('The base is too small for the wiring bay: the cover screw bosses collide with the connector sleeves — widen the base.');
-    return null;
-  }
+  const cordPass = 2 * rScrew * Math.sin(63 * DEG) - 2 * hole.wallRadius;
+  if (cordPass < (hw.prewiredCord ? hw.plugWidth : hw.cordWidth))
+    issues.push('The cord does not fit between the base-screw pillars — use a narrower cord or a smaller insert.');
+  const cupScrewMouthZ = baseBottom + b.height - spigotLen;
+  // the insert mouths must lie below the deck underside so the pillars (and screws) stay inside the tray
+  const minSpigot = Math.max(hole.kind === 'insert' ? hole.depth + 1 : 6, deckT + 1);
+  if (spigotLen < minSpigot - 1e-6)
+    issues.push(
+      `The cup joint spigot is too short for the base screws — raise "Cup joint spigot length" to ≥ ${Math.ceil(minSpigot)} mm.`,
+    );
 
-  // cord exit: a box through the wall, hugging the ceiling so the cord clamp can press it up against the roof
+  // cord exit: a box through the wall, hugging the deck underside so it opens upward into the deck seam
   const exitH = (hw.prewiredCord ? hw.plugThickness : hw.cordThickness) + 2 * CORD_CLEAR;
   const exitW = (hw.prewiredCord ? hw.plugWidth : hw.cordWidth) + 2 * CORD_CLEAR;
   const edge = baseEdgeAlong(b, axisX, axisY, along, 0);
@@ -257,14 +264,16 @@ function wiringBay(
   const sOut = (Number.isFinite(edge) ? edge : R + 20) + 3;
   if (depth - exitH < b.bottomEdgeRadius)
     issues.push('The cord exit breaks out of the base edge — move the exit angle or raise the base.');
-  else if (depth - exitH < coverThickness + 0.5)
-    issues.push('The cord exit would cut into the bay cover plate — raise the base or use a thinner cord.');
+  else if (depth - exitH < BAY_FLOOR + 0.5)
+    issues.push('The cord exit would cut into the tray floor — raise the base or use a thinner cord.');
   const sMid = (sIn + sOut) / 2;
   return {
     diameter,
     depth,
-    ceiling,
-    coverThickness,
+    floor: BAY_FLOOR,
+    deckThickness: deckT,
+    cupScrewMouthZ,
+    spigotRadius: rSpigot,
     sleeves,
     screws,
     hole,
@@ -280,11 +289,15 @@ function wiringBay(
   };
 }
 
+/** Height of the transverse ridges on the cord side of the clamp bar. */
+export const CLAMP_RIDGE = 0.6;
+
 /**
- * Screw-down cord clamp: a printed bar presses the cord up against a roof and two self-tapping screws pull it in.
+ * Screw-down cord clamp: a printed bar presses the cord against a surface and two screws pull it in.
  * Without a wiring bay the bar sits flush in a recess in the underside of a solid plinth, across the cord channel
- * (`inBay` false); with a bay it sits inside the bay between the cord exit and the sleeves, screwed up into the
- * ceiling. Centred at (x, y), `along` = unit XY exit direction, bar bottom at world z.
+ * (`inBay` false), pressing the cord up against the roof; with a bay it lies on the tray floor between the cord exit
+ * and the sleeves, pressing the cord down, screwed into floor pedestals. Centred at (x, y), `along` = unit XY exit
+ * direction, bar bottom at world z.
  */
 export interface StrainClamp {
   x: number;
@@ -296,12 +309,13 @@ export interface StrainClamp {
   thickness: number;
   /** screw centres at ±screwOffset across the cord */
   screwOffset: number;
-  /** screw holes in the base, mouth at z + reach */
+  /** screw holes: in the base roof opening downward at z + reach (underside clamp), or in floor pedestals opening
+   *  upward at z + reach (in-bay clamp) */
   hole: FastenerHole;
   inBay: boolean;
   /** world z of the bar's bottom face */
   z: number;
-  /** distance from the bar's bottom face up to where the pilots start */
+  /** distance from the bar's bottom face to the screw-hole mouth plane (in-bay: the ridge height, so the plate sits on the pedestals) */
   reach: number;
 }
 
@@ -340,23 +354,21 @@ function strainClamp(
   const across: [number, number] = [-along[1], along[0]];
 
   if (bay) {
-    // the ceiling already carries the pilots (bayCeiling); the bar must clear the cover and the sleeve ends
-    const zBar = baseBottom + bay.depth - channelH;
-    if (zBar < baseBottom + bay.coverThickness + 0.5)
-      issues.push('Base is too low for the cord clamp inside the wiring bay — raise the base or use a thinner cord.');
+    // The bar lies on the cord on the tray floor and presses it down; two screws drive down through the bar into
+    // floor pedestals (reachable while the deck is off). The bar's plate sits on the pedestal tops; its ridges hang
+    // down onto the cord, so `reach` (bar bottom → pedestal top) is the ridge length.
+    const zBar = baseBottom + bay.floor + ct - sr.squeeze;
+    const pedestalTop = zBar + CLAMP_RIDGE;
+    // pilot depth available in the pedestal + floor without breaking through the underside (≥ 2 × the screw diameter)
+    const engage = pedestalTop - baseBottom - 1;
+    if (engage < (hole.kind === 'insert' ? hole.depth - 1 : 2 * hole.screw))
+      issues.push('Base is too low for the cord clamp screws inside the wiring bay — raise the base or use a thinner cord.');
     const R = bay.diameter / 2;
     // furthest the bar can sit with both its outer corners inside the round bay wall
     const sMax = Math.sqrt(Math.max(0, (R - 1) ** 2 - (barLen / 2) ** 2)) - barWidth / 2;
     const sleeveEnd = bay.sleeves[0].len / 2 + 1.5;
     if (sMax - barWidth / 2 < sleeveEnd)
       issues.push('Base is too small for the cord clamp inside the wiring bay — widen the base or disable the clamp.');
-    const bayBosses = bay.screws.some((s) => {
-      const la = (s.x - axisX) * along[0] + (s.y - axisY) * along[1] - sMax;
-      const lc = (s.x - axisX) * across[0] + (s.y - axisY) * across[1];
-      return Math.hypot(Math.max(Math.abs(la) - barWidth / 2, 0), Math.max(Math.abs(lc) - barLen / 2, 0)) < bay.hole.bossDiameter / 2 + 1;
-    });
-    if (bayBosses)
-      issues.push('The cord clamp collides with a cover screw boss inside the wiring bay — widen the base or disable the clamp.');
     return {
       x: axisX + along[0] * sMax,
       y: axisY + along[1] * sMax,
@@ -368,7 +380,7 @@ function strainClamp(
       hole,
       inBay: true,
       z: zBar,
-      reach: channelH,
+      reach: pedestalTop - zBar,
     };
   }
 

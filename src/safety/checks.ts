@@ -826,7 +826,7 @@ function printChecks(p: LampParams, build: LampBuild): SafetyCheck[] {
   const legged = p.base.legs >= 3;
   const bay = build.layout.bay;
   const route = bay
-    ? `The cord exits through the wiring-bay wall at ${fmt(p.base.cordExitAngle, 0)}°${p.hardware.strainRelief.enabled ? ', clamped inside the bay' : ''}, then rises through the centre bore to the socket; the cover plate sits flush so the lamp stands flat.`
+    ? `The cord exits through the split-base wall at ${fmt(p.base.cordExitAngle, 0)}°${p.hardware.strainRelief.enabled ? ', clamped on the tray floor' : ''}, then rises through the centre bore to the socket; the tray floor is the lamp's bottom, felt pads on the tray rim.`
     : legged
       ? 'The cord drops from the base centre between the legs — nothing for it to pinch.'
       : p.base.cordChannel
